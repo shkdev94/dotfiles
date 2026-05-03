@@ -28,10 +28,6 @@
       url = "github:oven-sh/homebrew-bun";
       flake = false;
     };
-    homebrew-anomalyco = {
-      url = "github:anomalyco/homebrew-tap";
-      flake = false;
-    };
   };
 
   outputs =
@@ -45,7 +41,6 @@
       homebrew-cask,
       homebrew-sdkman,
       homebrew-bun,
-      homebrew-anomalyco,
     }:
     let
       configuration =
@@ -93,7 +88,6 @@
               "homebrew/homebrew-cask" = homebrew-cask;
               "sdkman/homebrew-tap" = homebrew-sdkman;
               "oven-sh/homebrew-bun" = homebrew-bun;
-              "anomalyco/homebrew-tap" = homebrew-anomalyco;
             };
 
             mutableTaps = false;
@@ -109,10 +103,10 @@
             };
             taps = builtins.attrNames config.nix-homebrew.taps;
             brews = [
-              "anomalyco/tap/opencode"
               "oven-sh/bun/bun"
               "bob"
               "mas"
+              "rustup"
               "fnm"
               "rbenv"
               "cocoapods"
@@ -146,8 +140,8 @@
               "visual-studio-code"
               "android-studio"
               "aldente"
+              "chatgpt"
               "claude"
-              "claude-code"
               "karabiner-elements"
               "docker-desktop"
               "logi-options+"

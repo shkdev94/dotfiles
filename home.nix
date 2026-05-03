@@ -36,21 +36,10 @@ in
     force = true;
   };
 
-  xdg.configFile."opencode/opencode.json" = {
-    source = create_symlink "${dotfiles}/opencode/opencode.json";
-    force = true;
-  };
-
-  xdg.configFile."opencode/oh-my-openagent.jsonc" = {
-    source = create_symlink "${dotfiles}/opencode/oh-my-openagent.jsonc";
-    force = true;
-  };
-
   xdg.configFile."tmux/tmux.conf" = {
     source = create_symlink "${dotfiles}/tmux.conf";
     force = true;
   };
-
 
   programs.zsh = {
     enable = true;

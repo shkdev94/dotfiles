@@ -10,7 +10,6 @@ bindkey '^F' autosuggest-accept
 alias v=nvim .
 alias f=fzf
 alias c=claude --dangerously-skip-permissions
-alias o=opencode
 alias nxu="sudo nix flake update && sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 
 # Coding cockpit: neovim + claude + terminal in tmux

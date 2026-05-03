@@ -14,20 +14,8 @@ end
 
 vim.cmd("autocmd! TermOpen term://* lua set_terminal_keymaps()")
 
-local Terminal = require("toggleterm.terminal").Terminal
-local opencode = Terminal:new({ cmd = "opencode", hidden = true, count = 6 })
-function _opencode_toggle()
-  opencode:toggle()
-end
-
 vim.keymap.set("n", "<leader>1", ":1ToggleTerm<CR>", { noremap = true, silent = true })
 vim.keymap.set("n", "<leader>2", ":2ToggleTerm<CR>", { noremap = true, silent = true })
 vim.keymap.set("n", "<leader>3", ":3ToggleTerm<CR>", { noremap = true, silent = true })
 vim.keymap.set("n", "<leader>4", ":4ToggleTerm<CR>", { noremap = true, silent = true })
 vim.keymap.set("n", "<leader>5", ":5ToggleTerm<CR>", { noremap = true, silent = true })
-vim.keymap.set(
-  "n",
-  "<leader>o",
-  "<cmd>lua _opencode_toggle()<CR>",
-  { noremap = true, silent = true }
-)
