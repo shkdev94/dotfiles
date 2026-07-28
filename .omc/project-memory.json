@@ -1,0 +1,135 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775768551081,
+  "projectRoot": "/Users/sanghyeon/.dotfiles",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 0,
+      "lastAccessed": 1775768551071,
+      "keyFiles": []
+    },
+    "ghostty": {
+      "path": "ghostty",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775768551072,
+      "keyFiles": [
+        "config"
+      ]
+    },
+    "nvim": {
+      "path": "nvim",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1775768551073,
+      "keyFiles": [
+        "init.lua",
+        "nvim-pack-lock.json",
+        "stylua.toml"
+      ]
+    },
+    "yazi": {
+      "path": "yazi",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775768551073,
+      "keyFiles": [
+        "yazi.toml"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "flake.nix",
+      "accessCount": 8,
+      "lastAccessed": 1775770313089,
+      "type": "file"
+    },
+    {
+      "path": "nvim/plugin/opencode.lua",
+      "accessCount": 4,
+      "lastAccessed": 1775770465446,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 3,
+      "lastAccessed": 1775769390586,
+      "type": "directory"
+    },
+    {
+      "path": "nvim/plugin/markdown.lua",
+      "accessCount": 3,
+      "lastAccessed": 1775770343575,
+      "type": "file"
+    },
+    {
+      "path": "home.nix",
+      "accessCount": 2,
+      "lastAccessed": 1775769810563,
+      "type": "file"
+    },
+    {
+      "path": "opencode/oh-my-opencode.jsonc",
+      "accessCount": 2,
+      "lastAccessed": 1775769898357,
+      "type": "file"
+    },
+    {
+      "path": "nvim/init.lua",
+      "accessCount": 1,
+      "lastAccessed": 1775769411329,
+      "type": "file"
+    },
+    {
+      "path": "nvim/plugin/copilot.lua",
+      "accessCount": 1,
+      "lastAccessed": 1775769632819,
+      "type": "file"
+    },
+    {
+      "path": "nvim/plugin/snacks.lua",
+      "accessCount": 1,
+      "lastAccessed": 1775769632868,
+      "type": "file"
+    },
+    {
+      "path": "opencode/opencode.json",
+      "accessCount": 1,
+      "lastAccessed": 1775769819322,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

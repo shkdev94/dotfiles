@@ -1,7 +1,7 @@
 # bob (neovim version manager)
 export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
 
-export EDITOR="nvim"
+export EDITOR="vim"
 
 # keybindings
 bindkey '^F' autosuggest-accept
@@ -55,6 +55,9 @@ export SDKMAN_DIR=$(brew --prefix sdkman-cli)/libexec
 export ANDROID_HOME=$HOME/Library/Android/sdk
 export PATH=$PATH:$ANDROID_HOME/emulator
 export PATH=$PATH:$ANDROID_HOME/platform-tools
+
+# rustup
+export PATH="$(brew --prefix rustup)/bin:$PATH"
 
 # zoxide
 eval "$(zoxide init zsh)"

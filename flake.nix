@@ -28,6 +28,10 @@
       url = "github:oven-sh/homebrew-bun";
       flake = false;
     };
+    homebrew-hashicorp = {
+      url = "github:hashicorp/homebrew-tap";
+      flake = false;
+    };
   };
 
   outputs =
@@ -41,6 +45,7 @@
       homebrew-cask,
       homebrew-sdkman,
       homebrew-bun,
+      homebrew-hashicorp,
     }:
     let
       configuration =
@@ -88,6 +93,7 @@
               "homebrew/homebrew-cask" = homebrew-cask;
               "sdkman/homebrew-tap" = homebrew-sdkman;
               "oven-sh/homebrew-bun" = homebrew-bun;
+              "hashicorp/homebrew-tap" = homebrew-hashicorp;
             };
 
             mutableTaps = false;
@@ -107,6 +113,7 @@
               "bob"
               "mas"
               "rustup"
+              "go"
               "fnm"
               "rbenv"
               "cocoapods"
@@ -121,6 +128,11 @@
               "tmux"
               "git-delta"
               "imagemagick"
+              "foundry"
+              "hashicorp/tap/terraform"
+              "awscli"
+              "gh"
+              "pigz"
               # LSP servers & formatters
               "lua-language-server"
               "typescript-language-server"
@@ -130,7 +142,6 @@
               "stylua"
               "prettierd"
               "tree-sitter-cli"
-
             ];
 
             casks = [
