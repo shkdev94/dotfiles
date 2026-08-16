@@ -26,18 +26,8 @@ in
     force = true;
   };
 
-  xdg.configFile."nvim" = {
-    source = create_symlink "${dotfiles}/nvim";
-    force = true;
-  };
-
   xdg.configFile."yazi" = {
     source = create_symlink "${dotfiles}/yazi";
-    force = true;
-  };
-
-  xdg.configFile."tmux/tmux.conf" = {
-    source = create_symlink "${dotfiles}/tmux.conf";
     force = true;
   };
 

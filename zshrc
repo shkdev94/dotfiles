@@ -4,29 +4,9 @@ export EDITOR="vim"
 bindkey '^F' autosuggest-accept
 
 # aliases
-alias v=nvim .
 alias f=fzf
 alias c=claude --dangerously-skip-permissions
 alias nxu="sudo nix flake update && sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
-
-# Coding cockpit: neovim + claude + terminal in tmux
-tmx() {
-  local raw_name="${1:-$(basename "$PWD")}"
-  local session_name="${raw_name#.}"
-  session_name="${session_name//./_}"
-
-  if [[ -n "$TMUX" ]]; then
-    echo "Already in a tmux session. Detach first or run from outside tmux."
-    return 1
-  fi
-
-  if tmux has-session -t "$session_name" 2>/dev/null; then
-    tmux attach-session -t "$session_name"
-    return
-  fi
-
-  tmux new-session -s "$session_name" -c "$PWD" -x "$(tput cols)" -y "$(tput lines)"
-}
 
 # yazi
 function y() {

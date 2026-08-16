@@ -115,7 +115,6 @@
               "fzf"
               "uv"
               "yazi"
-              "tmux"
               "git-delta"
               "hashicorp/tap/terraform"
               "awscli"
