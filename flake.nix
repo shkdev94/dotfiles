@@ -24,10 +24,6 @@
       url = "github:sdkman/homebrew-tap";
       flake = false;
     };
-    homebrew-bun = {
-      url = "github:oven-sh/homebrew-bun";
-      flake = false;
-    };
     homebrew-hashicorp = {
       url = "github:hashicorp/homebrew-tap";
       flake = false;
@@ -44,7 +40,6 @@
       homebrew-core,
       homebrew-cask,
       homebrew-sdkman,
-      homebrew-bun,
       homebrew-hashicorp,
     }:
     let
@@ -92,7 +87,6 @@
               "homebrew/homebrew-core" = homebrew-core;
               "homebrew/homebrew-cask" = homebrew-cask;
               "sdkman/homebrew-tap" = homebrew-sdkman;
-              "oven-sh/homebrew-bun" = homebrew-bun;
               "hashicorp/homebrew-tap" = homebrew-hashicorp;
             };
 
@@ -109,15 +103,11 @@
             };
             taps = builtins.attrNames config.nix-homebrew.taps;
             brews = [
-              "oven-sh/bun/bun"
-              "bob"
               "mas"
-              "rustup"
-              "go"
               "fnm"
               "rbenv"
               "cocoapods"
-              "sdkman-cli"
+              "sdkman/tap/sdkman-cli"
               "bat"
               "zoxide"
               "ripgrep"
@@ -127,21 +117,13 @@
               "yazi"
               "tmux"
               "git-delta"
-              "imagemagick"
-              "foundry"
               "hashicorp/tap/terraform"
               "awscli"
               "gh"
-              "pigz"
-              # LSP servers & formatters
-              "lua-language-server"
-              "typescript-language-server"
-              "vscode-langservers-extracted"
-              "tailwindcss-language-server"
               "biome"
-              "stylua"
               "prettierd"
-              "tree-sitter-cli"
+              # lomin
+              "pigz"
             ];
 
             casks = [
@@ -153,6 +135,8 @@
               "aldente"
               "chatgpt"
               "claude"
+              "claude-code"
+              "codex"
               "karabiner-elements"
               "docker-desktop"
               "logi-options+"
