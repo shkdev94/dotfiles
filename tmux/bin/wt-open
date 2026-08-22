@@ -11,7 +11,7 @@ if ! name=$(wt_session_for_path "$dir"); then
   # another checkout already owns this name -> disambiguate with parent dir
   tmux has-session -t "=$name" 2>/dev/null && name="$name-${dir:h:t}"
   tmux new-session -d -s "$name" -c "$dir"
-  (( $+commands[nvim] )) && tmux send-keys -t "=$name" nvim C-m
+  (( $+commands[nvim] )) && tmux send-keys -t "=$name:" nvim C-m
 fi
 
 if [[ -n ${TMUX:-} ]]; then
