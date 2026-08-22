@@ -25,5 +25,5 @@ darwin-rebuild switch --flake ~/.dotfiles
 - Mac App Store apps go in `homebrew.masApps` (name = App Store ID)
 - User-level programs (with dotfile config) go in `home.nix` using `programs.<name>`
 - Dotfiles stored in this repo are symlinked via `mkOutOfStoreSymlink` (not copied), so edits to source files take effect immediately
-- Format nix files with `nixpkgs-fmt`
+- Format nix files with `nixfmt`
 - The machine configuration is named `mbp` (`darwinConfigurations.mbp`)

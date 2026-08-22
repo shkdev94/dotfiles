@@ -5,6 +5,7 @@ bindkey '^F' autosuggest-accept
 
 # aliases
 alias f=fzf
+alias v=nvim .
 alias c=claude --dangerously-skip-permissions
 alias nxu="sudo nix flake update && sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 

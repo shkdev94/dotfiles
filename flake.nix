@@ -55,6 +55,15 @@
             fd
             fzf
             yazi
+            neovim
+            # LSP servers & formatters used by nvim/lsp and nvim/plugin/conform.lua
+            typescript-language-server
+            typescript
+            vscode-langservers-extracted
+            lua-language-server
+            tailwindcss-language-server
+            stylua
+            tree-sitter
           ];
 
           nix.settings.experimental-features = "nix-command flakes";

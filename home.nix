@@ -12,12 +12,17 @@ in
   home.homeDirectory = "/Users/sanghyeon";
   home.stateVersion = "25.05";
   home.packages = with pkgs; [
-    nixfmt-rfc-style
+    nixfmt
     nil # Nix LSP
   ];
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";
+    force = true;
+  };
+
+  xdg.configFile."nvim" = {
+    source = create_symlink "${dotfiles}/nvim";
     force = true;
   };
 
