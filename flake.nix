@@ -49,6 +49,12 @@
           environment.systemPackages = with pkgs; [
             vim
             tmux
+            bat
+            zoxide
+            ripgrep
+            fd
+            fzf
+            yazi
           ];
 
           nix.settings.experimental-features = "nix-command flakes";
@@ -109,13 +115,7 @@
               "rbenv"
               "cocoapods"
               "sdkman/tap/sdkman-cli"
-              "bat"
-              "zoxide"
-              "ripgrep"
-              "fd"
-              "fzf"
               "uv"
-              "yazi"
               "git-delta"
               "hashicorp/tap/terraform"
               "awscli"
