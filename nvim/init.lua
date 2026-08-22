@@ -36,7 +36,11 @@ for k, v in pairs(options) do
 end
 
 -- Keymaps
-vim.keymap.set("n", "-", ":bd<CR>")
+-- close buffer but keep the window layout (:bd would also close the window,
+-- which collapses the editor + toggleterm split)
+vim.keymap.set("n", "-", function()
+  Snacks.bufdelete()
+end)
 
 -- LSP
 vim.lsp.config("*", {
