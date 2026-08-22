@@ -48,6 +48,7 @@
         {
           environment.systemPackages = with pkgs; [
             vim
+            tmux
           ];
 
           nix.settings.experimental-features = "nix-command flakes";
