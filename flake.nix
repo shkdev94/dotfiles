@@ -72,6 +72,16 @@
             tree-sitter
           ];
 
+          # colima has no login item of its own, so start the VM at login
+          launchd.user.agents.colima = {
+            command = "${pkgs.colima}/bin/colima start";
+            serviceConfig = {
+              RunAtLoad = true;
+              StandardOutPath = "${config.users.users.sanghyeon.home}/Library/Logs/colima.log";
+              StandardErrorPath = "${config.users.users.sanghyeon.home}/Library/Logs/colima.log";
+            };
+          };
+
           nix.settings.experimental-features = "nix-command flakes";
 
           nixpkgs.hostPlatform = "aarch64-darwin";
