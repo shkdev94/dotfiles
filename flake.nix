@@ -55,6 +55,7 @@
             fd
             fzf
             yazi
+            serie
             neovim
             # LSP servers & formatters used by nvim/lsp and nvim/plugin/conform.lua
             typescript-language-server

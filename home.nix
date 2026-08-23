@@ -41,6 +41,11 @@ in
     force = true;
   };
 
+  xdg.configFile."serie" = {
+    source = create_symlink "${dotfiles}/serie";
+    force = true;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
