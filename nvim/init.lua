@@ -8,6 +8,9 @@ vim.api.nvim_create_autocmd("UIEnter", {
   end,
 })
 
+-- Shared plugin dependencies (init.lua runs before plugin/*.lua)
+vim.pack.add({ "https://github.com/nvim-tree/nvim-web-devicons" }) -- file icons: bufferline, lualine, diffview
+
 -- Leaders
 vim.g.mapleader = " "
 vim.g.localleader = "\\"
