@@ -11,6 +11,7 @@ alias gg=serie
 alias c=claude --dangerously-skip-permissions
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"
+alias lzd=lazydocker
 
 # yazi
 function y() {
