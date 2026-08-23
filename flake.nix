@@ -57,6 +57,11 @@
             yazi
             serie
             neovim
+            # Docker: colima provides the Linux VM/daemon, the rest are CLI-side
+            colima
+            docker-client
+            docker-compose
+            docker-buildx
             # LSP servers & formatters used by nvim/lsp and nvim/plugin/conform.lua
             typescript-language-server
             typescript

@@ -88,4 +88,6 @@ in
       set clipboard=unnamedplus
     '';
   };
+
+  programs.lazydocker.enable = true;
 }
