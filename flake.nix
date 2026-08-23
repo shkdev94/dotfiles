@@ -153,7 +153,6 @@
               "claude-code"
               "codex"
               "karabiner-elements"
-              "docker-desktop"
               "logi-options+"
               "figma"
               "slack"

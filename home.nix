@@ -89,5 +89,17 @@ in
     '';
   };
 
+  # docker CLI plugins live under libexec, which is not in docker's plugin
+  # search path, so link them into ~/.docker/cli-plugins where it does look
+  home.file.".docker/cli-plugins/docker-compose" = {
+    source = "${pkgs.docker-compose}/libexec/docker/cli-plugins/docker-compose";
+    force = true;
+  };
+
+  home.file.".docker/cli-plugins/docker-buildx" = {
+    source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";
+    force = true;
+  };
+
   programs.lazydocker.enable = true;
 }
