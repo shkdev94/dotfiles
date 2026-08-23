@@ -39,7 +39,7 @@ for d in $candidates; do
     case $line in
       "worktree "*) wt=${line#worktree } ;;
       "branch "*)   branch=${${line#branch }#refs/heads/} ;;
-      detached)     branch="${wt:t} (detached)" ;;
+      detached)     branch="(detached)" ;;
       prunable*)    prunable=1 ;;
       "")
         if (( ! prunable )) && [[ -d $wt ]]; then

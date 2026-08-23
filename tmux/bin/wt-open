@@ -12,6 +12,11 @@ if ! name=$(wt_session_for_path "$dir"); then
   tmux has-session -t "=$name" 2>/dev/null && name="$name-${dir:h:t}"
   tmux new-session -d -s "$name" -c "$dir"
   (( $+commands[nvim] )) && tmux send-keys -t "=$name:" nvim C-m
+  # window 2: git graph (stays in the background; window 1 keeps focus)
+  if (( $+commands[serie] )); then
+    win=$(tmux new-window -d -P -F '#{window_id}' -t "=$name:" -c "$dir")
+    tmux send-keys -t "$win" serie C-m
+  fi
 fi
 
 if [[ -n ${TMUX:-} ]]; then

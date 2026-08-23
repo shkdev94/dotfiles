@@ -1,14 +1,17 @@
 # Shared helpers for wt-* scripts (sourced, not executed).
 
-# Default tmux session name for a worktree path: "<repo>@<branch>", falling
-# back to the directory name when detached or not a git checkout. Leading dot
-# dropped, '.'/':' -> '_' (tmux forbids those in session names).
+# Default tmux session name for a worktree path: "<repo>@<worktree dir>",
+# just "<repo>" for the main worktree, the directory name when not a git
+# checkout. Leading dot dropped, '.'/':' -> '_' (tmux forbids those).
 wt_session_name() {
-  local dir=$1 common repo branch n
+  local dir=$1 common repo n
   if common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
     repo=${common:h:t}
-    branch=$(git -C "$dir" branch --show-current 2>/dev/null)
-    n="${repo#.}@${branch:-${dir:t}}"
+    if [[ ${common:h} == $dir ]]; then
+      n=$repo                      # main worktree
+    else
+      n="${repo#.}@${dir:t}"
+    fi
   else
     n=${dir:t}
   fi
