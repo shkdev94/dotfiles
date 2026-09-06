@@ -48,28 +48,12 @@
         {
           environment.systemPackages = with pkgs; [
             vim
-            tmux
-            bat
-            zoxide
             ripgrep
-            fd
-            fzf
-            yazi
-            serie
-            neovim
             # Docker: colima provides the Linux VM/daemon, the rest are CLI-side
             colima
             docker-client
             docker-compose
             docker-buildx
-            # LSP servers & formatters used by nvim/lsp and nvim/plugin/conform.lua
-            typescript-language-server
-            typescript
-            vscode-langservers-extracted
-            lua-language-server
-            tailwindcss-language-server
-            stylua
-            tree-sitter
           ];
 
           # colima has no login item of its own, so start the VM at login
@@ -145,8 +129,6 @@
               "hashicorp/tap/terraform"
               "awscli"
               "gh"
-              "biome"
-              "prettierd"
               # lomin
               "pigz"
             ];

@@ -1,7 +1,8 @@
-{ config
-, pkgs
-, lib
-, ...
+{
+  config,
+  pkgs,
+  lib,
+  ...
 }:
 let
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
@@ -13,7 +14,6 @@ in
   home.stateVersion = "25.05";
   home.packages = with pkgs; [
     nixfmt
-    nil # Nix LSP
   ];
 
   xdg.configFile."karabiner/karabiner.json" = {
@@ -21,28 +21,8 @@ in
     force = true;
   };
 
-  xdg.configFile."nvim" = {
-    source = create_symlink "${dotfiles}/nvim";
-    force = true;
-  };
-
   xdg.configFile."ghostty" = {
     source = create_symlink "${dotfiles}/ghostty";
-    force = true;
-  };
-
-  xdg.configFile."yazi" = {
-    source = create_symlink "${dotfiles}/yazi";
-    force = true;
-  };
-
-  xdg.configFile."tmux" = {
-    source = create_symlink "${dotfiles}/tmux";
-    force = true;
-  };
-
-  xdg.configFile."serie" = {
-    source = create_symlink "${dotfiles}/serie";
     force = true;
   };
 
@@ -63,8 +43,13 @@ in
         email = "sanghyeon.dev@proton.me";
       };
       credential.helper = "store";
-      push = { autoSetupRemote = true; };
-      core.pager = "delta";
+      push = {
+        autoSetupRemote = true;
+      };
+      core = {
+        editor = "vim";
+        pager = "delta";
+      };
       interactive.diffFilter = "delta --color-only";
       delta = {
         navigate = true;
