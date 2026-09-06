@@ -123,11 +123,11 @@
               "android-studio"
               "aldente"
               "chatgpt"
-              "claude"
-              "claude-code"
               "codex"
+              "github-copilot-app"
               "karabiner-elements"
               "logi-options+"
+              "obsidian"
               "figma"
               "slack"
             ];
