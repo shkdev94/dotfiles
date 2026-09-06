@@ -26,6 +26,11 @@ in
     force = true;
   };
 
+  xdg.configFile."mise/config.toml" = {
+    source = create_symlink "${dotfiles}/mise/config.toml";
+    force = true;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -46,15 +51,7 @@ in
       push = {
         autoSetupRemote = true;
       };
-      core = {
-        editor = "vim";
-        pager = "delta";
-      };
-      interactive.diffFilter = "delta --color-only";
-      delta = {
-        navigate = true;
-        side-by-side = true;
-      };
+      core.editor = "vim";
       merge.conflictstyle = "zdiff3";
     };
   };

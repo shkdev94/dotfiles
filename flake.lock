@@ -69,38 +69,6 @@
         "type": "github"
       }
     },
-    "homebrew-hashicorp": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1785845491,
-        "narHash": "sha256-6VsYiqbaVRiloyQMRxXJiDJnnvShddgnwFeoXY8FiQg=",
-        "owner": "hashicorp",
-        "repo": "homebrew-tap",
-        "rev": "b7f5123d0d45cca02dc9b09e837f8b112fcd9e32",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hashicorp",
-        "repo": "homebrew-tap",
-        "type": "github"
-      }
-    },
-    "homebrew-sdkman": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1755105143,
-        "narHash": "sha256-n8nB0WBgYVZfeunCetX4rpkkDFhketaoxtB4T5CCgiM=",
-        "owner": "sdkman",
-        "repo": "homebrew-tap",
-        "rev": "bfbdacdfd7c63180ae3d48dd5c7910298e1af582",
-        "type": "github"
-      },
-      "original": {
-        "owner": "sdkman",
-        "repo": "homebrew-tap",
-        "type": "github"
-      }
-    },
     "nix-darwin": {
       "inputs": {
         "nixpkgs": [
@@ -161,8 +129,6 @@
         "home-manager": "home-manager",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
-        "homebrew-hashicorp": "homebrew-hashicorp",
-        "homebrew-sdkman": "homebrew-sdkman",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs"

@@ -9,16 +9,8 @@ alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"
 alias lzd=lazydocker
 
-# fnm
-eval "$(fnm env --use-on-cd --shell zsh)"
-
-# rbenv
-eval "$(rbenv init - zsh)"
-export PATH="$HOME/.rbenv/bin:$PATH"
-
-# sdkman
-export SDKMAN_DIR=$(brew --prefix sdkman-cli)/libexec
-[[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
+# mise
+eval "$(mise activate zsh)"
 
 # android
 export ANDROID_HOME=$HOME/Library/Android/sdk

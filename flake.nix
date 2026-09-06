@@ -20,14 +20,6 @@
       url = "github:homebrew/homebrew-cask";
       flake = false;
     };
-    homebrew-sdkman = {
-      url = "github:sdkman/homebrew-tap";
-      flake = false;
-    };
-    homebrew-hashicorp = {
-      url = "github:hashicorp/homebrew-tap";
-      flake = false;
-    };
   };
 
   outputs =
@@ -39,8 +31,6 @@
       nix-homebrew,
       homebrew-core,
       homebrew-cask,
-      homebrew-sdkman,
-      homebrew-hashicorp,
     }:
     let
       configuration =
@@ -49,6 +39,11 @@
           environment.systemPackages = with pkgs; [
             vim
             ripgrep
+            mise
+            uv
+            awscli2
+            gh
+            pigz
             # Docker: colima provides the Linux VM/daemon, the rest are CLI-side
             colima
             docker-client
@@ -102,8 +97,6 @@
             taps = {
               "homebrew/homebrew-core" = homebrew-core;
               "homebrew/homebrew-cask" = homebrew-cask;
-              "sdkman/homebrew-tap" = homebrew-sdkman;
-              "hashicorp/homebrew-tap" = homebrew-hashicorp;
             };
 
             mutableTaps = false;
@@ -120,17 +113,6 @@
             taps = builtins.attrNames config.nix-homebrew.taps;
             brews = [
               "mas"
-              "fnm"
-              "rbenv"
-              "cocoapods"
-              "sdkman/tap/sdkman-cli"
-              "uv"
-              "git-delta"
-              "hashicorp/tap/terraform"
-              "awscli"
-              "gh"
-              # lomin
-              "pigz"
             ];
 
             casks = [
