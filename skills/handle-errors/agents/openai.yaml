@@ -1,0 +1,4 @@
+interface:
+  display_name: "오류와 예외 처리"
+  short_description: "예상 가능한 실패와 프로그램 결함을 구분해 오류 처리와 전파를 개선"
+  default_prompt: "$handle-errors로 실패 유형과 처리 책임을 구분하고, 기존 언어·프레임워크에 맞게 오류 처리와 검증을 개선해 주세요."

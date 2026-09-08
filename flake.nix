@@ -124,7 +124,6 @@
               "aldente"
               "chatgpt"
               "codex"
-              "github-copilot-app"
               "karabiner-elements"
               "logi-options+"
               "obsidian"

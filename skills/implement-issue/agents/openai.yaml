@@ -1,0 +1,4 @@
+interface:
+  display_name: "이슈 구현"
+  short_description: "GitHub 이슈를 구현·검증하고 단일 PR 또는 stacked PR로 전달"
+  default_prompt: "$implement-issue으로 지정한 GitHub 이슈를 구현·검증하고 작업 크기와 의존성에 맞게 PR을 작성해 주세요."

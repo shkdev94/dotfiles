@@ -1,0 +1,4 @@
+interface:
+  display_name: "비즈니스 로직 유닛 테스트 작성"
+  short_description: "비즈니스 규칙과 경계 조건을 선별해 AAA 유닛 테스트를 작성하고 검증"
+  default_prompt: "$write-unit-test로 비즈니스 로직의 핵심 규칙과 경계 조건을 선별해 AAA 유닛 테스트를 작성하고 실행해 주세요."

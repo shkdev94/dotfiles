@@ -1,0 +1,4 @@
+interface:
+  display_name: "좋은 코드 작성"
+  short_description: "언어와 분야에 맞춰 정확하고 읽기 쉬우며 변경하기 좋은 코드를 작성"
+  default_prompt: "$write-good-code로 요구사항과 기존 구조에 맞춰 명확하고 유지보수하기 쉬운 코드를 작성하고 검증해 주세요."

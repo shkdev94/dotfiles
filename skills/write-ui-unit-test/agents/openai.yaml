@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI 유닛 테스트 작성"
+  short_description: "사용자 관점의 UI와 훅 동작을 선별해 AAA 테스트를 작성하고 검증"
+  default_prompt: "$write-ui-unit-test로 중요한 UI 동작과 회귀 위험을 선별해 사용자 관점의 AAA 테스트를 작성하고 실행해 주세요."

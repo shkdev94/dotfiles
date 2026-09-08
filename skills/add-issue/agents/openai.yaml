@@ -1,0 +1,7 @@
+interface:
+  display_name: "이슈 추가"
+  short_description: "사전 검토된 버그·기능·태스크를 정리해 GitHub 이슈로 등록"
+  default_prompt: "$add-issue로 앞서 검토한 버그·기능·태스크를 정리해 GitHub 이슈로 등록해 주세요."
+
+policy:
+  allow_implicit_invocation: false
