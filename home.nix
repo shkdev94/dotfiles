@@ -42,12 +42,30 @@ in
   programs.gh = {
     enable = true;
     gitCredentialHelper.enable = false;
-    extensions = [ gh-attach ];
+    extensions = [
+      gh-attach
+      pkgs.gh-stack
+    ];
   };
+
+  home.file.".agent/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
+  home.file.".agent/skills/commit-changes".source =
+    create_symlink "${dotfiles}/skills/commit-changes";
+  home.file.".agent/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
+  home.file.".agent/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
+  home.file.".agent/skills/work-with-evidence".source =
+    create_symlink "${dotfiles}/skills/work-with-evidence";
 
   home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
   home.file.".agents/skills/cleanup-merged-pr".source =
     create_symlink "${dotfiles}/skills/cleanup-merged-pr";
+  home.file.".agents/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
+  home.file.".agents/skills/commit-changes".source =
+    create_symlink "${dotfiles}/skills/commit-changes";
+  home.file.".agents/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
+  home.file.".agents/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
+  home.file.".agents/skills/work-with-evidence".source =
+    create_symlink "${dotfiles}/skills/work-with-evidence";
   home.file.".agents/skills/implement-issue".source =
     create_symlink "${dotfiles}/skills/implement-issue";
   home.file.".agents/skills/write-good-code".source =
