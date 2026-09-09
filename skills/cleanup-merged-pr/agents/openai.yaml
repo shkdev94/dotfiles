@@ -1,0 +1,4 @@
+interface:
+  display_name: "병합된 PR 정리"
+  short_description: "병합된 PR의 로컬·원격 브랜치와 워크트리를 확인해 안전하게 정리"
+  default_prompt: "$cleanup-merged-pr로 이 PR의 병합 여부를 확인하고, 필요 없는 로컬·원격 브랜치와 워크트리를 정리해 주세요."

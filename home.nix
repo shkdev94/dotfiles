@@ -17,6 +17,8 @@ in
   ];
 
   home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
+  home.file.".agents/skills/cleanup-merged-pr".source =
+    create_symlink "${dotfiles}/skills/cleanup-merged-pr";
   home.file.".agents/skills/implement-issue".source =
     create_symlink "${dotfiles}/skills/implement-issue";
   home.file.".agents/skills/write-good-code".source =
