@@ -60,3 +60,31 @@ description: 비즈니스 로직과 일반 모듈의 유닛 테스트 추가·�
 - 실패하면 잘못된 테스트·환경 문제·실제 제품 결함을 구분한다. 통과시키기 위해 기대값을 약화하거나 테스트를 skip하지 않는다. 제품 수정이 요청 범위에 없으면 발견한 결함을 보고한다.
 - 결과에는 추가한 시나리오와 선정 이유, 실행 명령과 결과, 실행하지 못한 검증을 간단히 적는다. 선택하지 않은 모든 파일을 나열할 필요는 없다.
 - 요청 없이 커밋·PR 생성·이슈 등록까지 이어가지 않는다.
+
+## 유용한 명령어
+
+변수는 확인한 실제 값으로 채운다. 필요한 명령만 선택하고, 설치 버전과 저장소의 실행 규칙을 따른다.
+
+```bash
+# 기존 테스트와 실행 설정 탐색
+rg --files -g '*test*' -g '*spec*' -g package.json -g '*lock*' -g pyproject.toml -g Cargo.toml -g go.mod
+rg -n -F -- "$SYMBOL" "$SOURCE_DIR"
+git diff --check
+```
+
+기존 패키지 매니저·러너와 설치 버전을 확인하고 저장소 스크립트를 우선한다. 아래는 해당 도구가 이미 설정된 경우의 선택지이며 모두 실행할 목록이 아니다. `npx` 등으로 없는 러너를 즉석 다운로드하거나 snapshot을 자동 갱신해 실패를 지우지 않는다.
+
+```bash
+# pnpm + Vitest: 대상 파일만 일회 실행
+pnpm exec vitest run "$TEST_FILE"
+# pnpm + Jest: 정확한 대상 파일만 일회 실행
+pnpm exec jest --runTestsByPath "$TEST_FILE" --watch=false
+# Python + pytest
+python -m pytest "$TEST_FILE" -q
+# Rust: 기존 crate의 해당 테스트 필터
+cargo test "$TEST_FILTER"
+# Go: 대상 패키지에서 해당 테스트 재실행
+go test "$PACKAGE" -run "$TEST_PATTERN" -count=1
+```
+
+파일 경로 필터와 테스트 이름 필터를 구분하고 실행 결과의 테스트 개수도 확인한다. 0개 실행을 성공적인 검증으로 보고하지 않는다. watch 모드 대신 종료되는 실행 방식을 사용하고, 모노레포에서는 대상 패키지의 경로와 설정에서 실행한다.

@@ -77,3 +77,26 @@ Git에서 무시되는 파일은 미반영 커밋이 아니다. 실제 ignore �
 - 원격 브랜치, 로컬 브랜치, 워크트리 각각을 `삭제`, `이미 없음`, `사용자 선택으로 보존`, `결정 대기`, `안전 조건으로 보존`, `확인 실패`로 구분하고 정확한 이름·경로를 적는다.
 - 보존·결정 대기 항목에는 구체적인 이유와 받은 사용자 결정 또는 아직 필요한 결정을 설명한다. 질문이 필요한 항목을 자동 보존 결과로 마무리하지 않는다. 추가 조치가 필요하면 해당 항목에 필요한 작업만 알린다.
 - 성공하지 않은 삭제를 완료로 보고하지 않고, 전체 시스템 정리나 PR 병합을 이어서 수행하지 않는다.
+
+## 유용한 명령어
+
+변수는 확인한 실제 값으로 채운다. 삭제 명령은 본문의 병합·파일·의존성 검사가 끝난 대상에만 사용한다.
+
+```bash
+# 병합 여부와 정확한 대상 확인
+gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,headRepository,headRepositoryOwner,baseRefName,mergeCommit
+git worktree list --porcelain
+git -C "$WORKTREE" status --porcelain=v1 --untracked-files=all
+git -C "$WORKTREE" ls-files --others --ignored --exclude-standard --directory
+git ls-remote --heads "$HEAD_REMOTE" "refs/heads/$HEAD_BRANCH"
+
+# 검증된 워크트리와 로컬 브랜치 제거
+git -C "$REPO" worktree remove -- "$WORKTREE"
+git -C "$REPO" branch -d -- "$LOCAL_BRANCH"
+
+# 확인한 SHA가 그대로인 원격 브랜치만 삭제
+git push --force-with-lease="refs/heads/$HEAD_BRANCH:$VERIFIED_REMOTE_SHA" \
+  "$VERIFIED_HEAD_PUSH_URL" ":refs/heads/$HEAD_BRANCH"
+```
+
+squash·rebase 병합, 원격 ref와 스택 의존성 처리는 [명령별 검증 조건](references/commands.md)을 따른다. 삭제 명령을 조회 명령과 일괄 실행하지 않는다.

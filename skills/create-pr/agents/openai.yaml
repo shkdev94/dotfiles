@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR 작성"
+  short_description: "브랜치 변경과 검증 결과를 확인해 한국어 PR 생성·갱신"
+  default_prompt: "$create-pr로 현재 작업 브랜치의 PR을 작성해 주세요."

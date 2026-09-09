@@ -57,6 +57,18 @@ git push --force-with-lease="refs/heads/$HEAD_BRANCH:$VERIFIED_REMOTE_SHA" \
 
 재조회로 원격 ref가 없음을 확인한 뒤, 정확히 매핑되는 로컬 원격 추적 ref만 남아 있다면 읽어둔 SHA를 조건으로 제거한다. fetch refspec을 확인하고 `refs/remotes/origin/...`을 가정하지 않는다.
 
+## 스택과 제외 파일 확인
+
+```bash
+# 해당 경로의 실제 ignore 규칙 및 추적 파일 확인
+git -C "$WORKTREE" check-ignore -v -- "$RELATIVE_PATH"
+git -C "$WORKTREE" ls-files -- "$RELATIVE_PATH"
+# 공식 github/gh-stack이 설치된 경우, 해당 저장소에서 의존 관계 조회
+gh stack view --json
+```
+
+`gh stack sync`는 rebase·push까지 수행하고 `--prune`은 브랜치 삭제를 포함한다. 정리 전 의존성을 조회하려고 실행하지 않는다. `gh stack unstack`도 원격 스택 관계를 바꾸므로 로컬 브랜치 삭제의 대체 명령으로 사용하지 않는다. 도구가 없거나 로컬 추적이 없으면 PR base·head와 로컬 upstream을 직접 확인한다.
+
 ## 참고 문서
 
 - [git worktree](https://git-scm.com/docs/git-worktree)
