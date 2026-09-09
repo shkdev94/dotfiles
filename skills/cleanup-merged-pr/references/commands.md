@@ -9,7 +9,7 @@ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,headReposi
 git remote -v
 git worktree list --porcelain
 git -C "$WORKTREE" status --porcelain=v1 --untracked-files=all
-git -C "$WORKTREE" ls-files --others --ignored --exclude-standard
+git -C "$WORKTREE" ls-files --others --ignored --exclude-standard --directory
 git ls-remote --heads "$HEAD_REMOTE" "refs/heads/$HEAD_BRANCH"
 ```
 
@@ -19,7 +19,7 @@ PR의 병합 여부·최종 head SHA·head 저장소 정체성을 확정할 수 
 
 ## 워크트리와 로컬 브랜치
 
-워크트리 제거는 삭제 대상 밖에서 실행한다. Git 상태 외에 무시된 파일, 잠금, 활성 작업, 서브모듈도 먼저 검사한다.
+워크트리 제거는 삭제 대상 밖에서 실행한다. Git 상태 외에 무시된 파일, 잠금, 활성 작업, 서브모듈도 먼저 검사한다. 무시된 파일의 존재만으로 질문하지 않고 본문의 Git 제외 파일 처리 기준을 적용한다. `git check-ignore`로 실제 제외 여부를, `git ls-files`로 해당 경로의 추적 파일 유무를 확인한다. 디렉터리 단위 목록에 가려진 파일도 필요한 범위에서 확인한다. 재생성 파일과 Git에서 제외된 `.env`·`.env.*`는 백업이나 질문 없이 함께 제거한다. 심링크의 외부 원본은 삭제하지 않는다. 전체 `git clean -fdx` 또는 `-fdX`로 분류되지 않은 데이터를 일괄 삭제하지 않는다.
 
 ```bash
 git -C "$REPO" worktree remove -- "$WORKTREE"
