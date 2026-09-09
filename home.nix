@@ -7,6 +7,29 @@
 let
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
   create_symlink = path: config.lib.file.mkOutOfStoreSymlink path;
+  gh-attach = pkgs.stdenvNoCC.mkDerivation rec {
+    pname = "gh-attach";
+    version = "0.4.3";
+
+    src = pkgs.fetchurl {
+      url = "https://github.com/sudosubin/gh-attach/releases/download/v${version}/gh-attach-darwin-arm64";
+      hash = "sha256-gf7/Hi7GDAOJc/yUSH5cE3n66xjiApNZhbjNALbRUvU=";
+    };
+
+    dontUnpack = true;
+    dontStrip = true;
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 "$src" "$out/bin/gh-attach"
+      runHook postInstall
+    '';
+
+    meta = {
+      description = "GitHub CLI extension for uploading and downloading attachments";
+      homepage = "https://github.com/sudosubin/gh-attach";
+      platforms = [ "aarch64-darwin" ];
+    };
+  };
 in
 {
   home.username = "sanghyeon";
@@ -15,6 +38,12 @@ in
   home.packages = with pkgs; [
     nixfmt
   ];
+
+  programs.gh = {
+    enable = true;
+    gitCredentialHelper.enable = false;
+    extensions = [ gh-attach ];
+  };
 
   home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
   home.file.".agents/skills/cleanup-merged-pr".source =
