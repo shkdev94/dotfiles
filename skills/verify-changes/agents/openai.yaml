@@ -1,0 +1,4 @@
+interface:
+  display_name: "변경 사항 검증"
+  short_description: "요구사항·코드·자료를 기준으로 테스트와 Chrome headless 검증 수행"
+  default_prompt: "$verify-changes로 변경 사항을 요구사항과 제공된 자료에 맞춰 검증하고 결과와 미검증 범위를 보고해 주세요."

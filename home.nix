@@ -53,6 +53,8 @@ in
     create_symlink "${dotfiles}/skills/commit-changes";
   home.file.".agent/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
   home.file.".agent/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
+  home.file.".agent/skills/verify-changes".source =
+    create_symlink "${dotfiles}/skills/verify-changes";
   home.file.".agent/skills/work-with-evidence".source =
     create_symlink "${dotfiles}/skills/work-with-evidence";
 
@@ -64,6 +66,8 @@ in
     create_symlink "${dotfiles}/skills/commit-changes";
   home.file.".agents/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
   home.file.".agents/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
+  home.file.".agents/skills/verify-changes".source =
+    create_symlink "${dotfiles}/skills/verify-changes";
   home.file.".agents/skills/work-with-evidence".source =
     create_symlink "${dotfiles}/skills/work-with-evidence";
   home.file.".agents/skills/implement-issue".source =
