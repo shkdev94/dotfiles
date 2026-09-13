@@ -55,6 +55,8 @@ in
   home.file.".agent/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
   home.file.".agent/skills/verify-changes".source =
     create_symlink "${dotfiles}/skills/verify-changes";
+  home.file.".agent/skills/write-bdd-scenarios".source =
+    create_symlink "${dotfiles}/skills/write-bdd-scenarios";
   home.file.".agent/skills/work-with-evidence".source =
     create_symlink "${dotfiles}/skills/work-with-evidence";
 
@@ -68,6 +70,8 @@ in
   home.file.".agents/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
   home.file.".agents/skills/verify-changes".source =
     create_symlink "${dotfiles}/skills/verify-changes";
+  home.file.".agents/skills/write-bdd-scenarios".source =
+    create_symlink "${dotfiles}/skills/write-bdd-scenarios";
   home.file.".agents/skills/work-with-evidence".source =
     create_symlink "${dotfiles}/skills/work-with-evidence";
   home.file.".agents/skills/implement-issue".source =
