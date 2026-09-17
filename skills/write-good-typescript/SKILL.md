@@ -42,6 +42,46 @@ type Result<T> =
 
 기존 선언을 다시 열어 확장해야 하는 declaration merging이나 module augmentation에는 `interface`를 사용한다. 기존 코드가 `interface`를 일관되게 사용하고 있다면 선호만을 이유로 `type`으로 변경하지 않고 저장소의 관례를 따른다.
 
+## 조건 분기 선택하기
+
+함수의 나머지 로직을 진행할 수 없는 조건, 유효하지 않은 입력, 예외적인 상태는 guard clause와 early return으로 먼저 처리한다. 조건을 만족하지 않는 경로를 일찍 종료해 정상 흐름의 중첩을 줄이고, 앞선 분기가 항상 반환하거나 예외를 던진다면 불필요한 `else`를 사용하지 않는다.
+
+```ts
+type DiscountUser = {
+  isPremium: boolean;
+};
+
+function calculateDiscount(user: DiscountUser, amount: number): number {
+  if (!user.isPremium) return 0;
+  if (amount < 100) return 0;
+
+  return amount * 0.1;
+}
+```
+
+하나의 판별값에 따라 여러 개의 상호 배타적인 경로 중 하나를 선택한다면 연속된 `if`/`else if`보다 `switch`를 사용한다. 리터럴 유니온이나 판별 가능한 유니온을 분기할 때 각 케이스의 의도와 처리 범위를 한곳에서 확인하기 좋고, exhaustive check와 함께 처리 누락도 검사할 수 있다.
+
+```ts
+type UserRole = "admin" | "member" | "guest";
+
+function getRoleLabel(role: UserRole): string {
+  switch (role) {
+    case "admin":
+      return "관리자";
+    case "member":
+      return "회원";
+    case "guest":
+      return "게스트";
+    default: {
+      const _: never = role;
+      return _;
+    }
+  }
+}
+```
+
+서로 다른 조건식이나 범위 검사처럼 하나의 판별값으로 설명할 수 없는 분기는 guard clause나 `if`를 사용한다. 같은 판별값을 기준으로 한 `switch`가 여러 곳에서 반복된다면 분기를 무조건 제거하기보다 동작의 변경 이유와 확장 가능성을 확인하고, 필요할 때 전략 객체나 다형성으로 책임을 분리한다. Factory처럼 구현 선택을 한곳에 모으는 코드에서는 `switch`가 자연스러운 선택일 수 있다.
+
 ## `satisfies`와 `as` 선택하기
 
 직접 선언하는 값이 특정 타입의 조건을 만족하는지 검사하면서 값의 구체적인 추론 타입을 유지하려면 `satisfies`를 사용한다.
