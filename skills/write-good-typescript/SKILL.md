@@ -25,6 +25,22 @@ function getLength(value: unknown): number {
 
 JavaScript에서 TypeScript로 점진적으로 마이그레이션하거나 서드파티 라이브러리의 타입이 제공되지 않는 등 `any` 사용이 불가피하다면 가능한 한 좁은 경계에 격리하고, 내부 코드와 공개 인터페이스로 전파되지 않게 한다.
 
+## 객체 타입을 구체적으로 표현하기
+
+임의의 객체를 나타내기 위해 `Object`나 `{}`를 사용하지 않는다. 두 타입은 문자열과 숫자 같은 원시값도 허용하므로 객체의 키와 값에 관한 계약을 표현하지 못한다.
+
+키는 문자열이지만 값의 타입을 아직 알 수 없는 객체라면 `Record<string, unknown>`을 사용하고, 프로퍼티를 사용하기 전에 타입을 좁힌다.
+
+```ts
+function getDisplayName(metadata: Record<string, unknown>): string | undefined {
+  const displayName = metadata["displayName"];
+
+  return typeof displayName === "string" ? displayName : undefined;
+}
+```
+
+프로퍼티 구조를 알고 있다면 `Record<string, unknown>`보다 필요한 프로퍼티를 명시한 타입을 정의한다. 키에 접근하지 않고 원시값만 제외하려는 경우에는 `object`를 사용한다.
+
 ## 타입 선언의 기본 선택
 
 저장소에 별도의 규칙이 없다면 객체 타입을 포함한 새로운 타입 선언에는 `type` alias를 기본으로 사용한다. `type`은 객체뿐 아니라 유니온, 튜플, 교차 타입 등을 표현할 수 있어 타입 선언의 일관성을 유지하기 좋다.
