@@ -78,6 +78,8 @@ in
     create_symlink "${dotfiles}/skills/implement-issue";
   home.file.".agents/skills/write-good-code".source =
     create_symlink "${dotfiles}/skills/write-good-code";
+  home.file.".agents/skills/write-good-typescript".source =
+    create_symlink "${dotfiles}/skills/write-good-typescript";
   home.file.".agents/skills/write-ui-unit-test".source =
     create_symlink "${dotfiles}/skills/write-ui-unit-test";
   home.file.".agents/skills/write-unit-test".source =

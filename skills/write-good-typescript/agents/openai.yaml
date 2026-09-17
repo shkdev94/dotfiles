@@ -1,0 +1,4 @@
+interface:
+  display_name: "좋은 TypeScript 작성"
+  short_description: "읽기 쉽고 유지보수하기 좋은 TypeScript 코드 작성"
+  default_prompt: "$write-good-typescript로 TypeScript의 특성을 활용해 읽기 쉽고 유지보수하기 좋은 코드를 작성해 주세요."
