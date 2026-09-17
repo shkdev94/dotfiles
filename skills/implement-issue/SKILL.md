@@ -64,19 +64,13 @@ description: GitHub 이슈 구현이나 할당된 이슈의 PR 생성·수정을
 
 ## 유용한 명령어
 
-변수는 확인한 실제 값으로 채운다. 필요한 명령만 선택하고, 설치 버전과 저장소의 실행 규칙을 따른다.
+변수는 확인한 실제 값으로 채우고 필요한 명령만 선택한다.
 
 ```bash
 # 이슈·관련 댓글과 기존 PR 확인
 gh issue view "$ISSUE_URL" --json title,body,labels,assignees,state,url
 gh issue view "$ISSUE_URL" --comments
 gh pr list -R "$REPOSITORY" --state open --search "$ISSUE_NUMBER"
-# 관련 코드·검증 설정과 현재 변경 확인
-rg --files -g AGENTS.md -g package.json -g pyproject.toml -g Cargo.toml -g go.mod -g '*test*' -g '*spec*'
-rg -n -F -- "$SYMBOL" "$SOURCE_DIR"
-git status --short
-git diff --check
-git diff
 # 생성된 PR·CI 결과 확인
 gh pr view "$PR_URL" --json url,baseRefName,headRefName,state
 gh pr checks "$PR_URL"

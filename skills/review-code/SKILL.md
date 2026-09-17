@@ -75,11 +75,6 @@ git diff --cached
 git show "$COMMIT_SHA" --
 git diff "$BASE_REF...$HEAD_REF"
 
-# 호출자·테스트와 코드 위치 확인
-rg -n -F -- "$SYMBOL" "$SOURCE_DIR"
-rg --files -g '*test*' -g '*spec*'
-git diff --check
-
 # GitHub에 리뷰 게시까지 요청받은 경우에만 실행
 gh pr review "$PR_URL" --comment --body-file "$REVIEW_FILE"
 ```

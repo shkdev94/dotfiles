@@ -40,7 +40,7 @@ description: 요구사항을 BDD 행동 시나리오로 작성하거나 기존 �
 - 버튼 좌표·CSS selector·내부 state·비공개 함수명보다 업무 용어와 사용자 행동으로 표현한다. UI 자체가 요구사항이면 필요한 화면 동작을, API 계약이면 응답·상태처럼 외부에서 관찰 가능한 결과를 구체적으로 적는다.
 - 같은 규칙의 입력·결과만 달라지면 `Scenario Outline`과 `Examples`로 묶는다. 서로 다른 규칙을 거대한 표 하나에 섞지 않는다.
 - `Background`는 해당 범위의 모든 시나리오에 실제로 공통인 짧은 전제만 담는다. 성공 전제를 넣은 뒤 실패 시나리오에서 반대로 덮어쓰지 않는다.
-- `Rule`은 관련 예제를 업무 규칙별로 묶을 때 사용하되 저장소의 파서 지원을 확인한다. Data Table은 한 단계의 구조화된 데이터, `Examples`는 시나리오 반복 입력으로 구분한다.
+- `Rule`은 관련 예제를 업무 규칙별로 묶을 때 사용한다. Data Table은 한 단계의 구조화된 데이터, `Examples`는 시나리오 반복 입력으로 구분한다.
 
 ## 저장 형식과 예시
 
@@ -52,34 +52,5 @@ description: 요구사항을 BDD 행동 시나리오로 작성하거나 기존 �
 ## 검토와 결과 전달
 
 - 규칙의 출처, 전제의 일관성, 관찰 가능한 결과, 독립성, 중복·누락, 경계 예제와 Outline 변수·표 열의 일치를 확인한다.
-- 설치된 Gherkin 파서·린터가 있으면 해당 문법 검사를 수행한다. Cucumber dry-run은 실행 환경을 로드할 수 있으므로 파서와 동일하게 취급하지 않는다. 도구가 없으면 문법을 직접 검토하고 자동 검사하지 못했음을 보고한다.
 - 문법 통과를 제품 동작 통과로 보고하지 않는다. step definition이 없거나 구현이 미완료이면 자동화·구현 상태를 별도로 기록한다.
 - 작성·수정한 파일, 다룬 규칙과 주요 예제, 실제 수행한 검사, 남은 질문을 한국어로 보고한다. 요청 없이 커밋·push·이슈 등록을 수행하지 않는다.
-
-## 유용한 명령어
-
-변수는 확인한 실제 값으로 채우고 해당 저장소에 필요한 조회·검사만 선택한다.
-
-```bash
-# 기존 행동 명세·규칙·러너 설정 탐색
-rg --files -g AGENTS.md -g '*CONTRIBUTING*' -g '*.feature' -g '*cucumber*' -g '*gherkin*' -g package.json
-rg -n -F -- "$DOMAIN_TERM" "$SPEC_DIR"
-rg -n -F -- "$SYMBOL" "$SOURCE_DIR"
-
-# 제공된 GitHub 티켓과 PR 맥락 확인
-gh issue view "$ISSUE_URL" --comments
-gh pr view "$PR_URL" --json title,body,baseRefName,headRefOid
-
-# 문서 변경 확인
-git diff --check
-git diff -- "$FEATURE_FILE"
-
-# Cucumber.js가 이미 설정된 pnpm 저장소에서 지원 옵션 확인
-pnpm exec cucumber-js --help
-# 기존 설정·support code의 로딩 영향을 확인한 경우에만 연결 상태 검사
-pnpm exec cucumber-js "$FEATURE_FILE" --dry-run
-```
-
-새 파일은 `git diff`에 나오지 않을 수 있으므로 파일 자체도 읽는다. `--dry-run`은 실제 시나리오 행동의 성공을 검증하지 않는다. 없는 도구를 `npx` 등으로 즉석 설치하거나 검사를 통과시키기 위해 step definition을 임의로 추가하지 않는다.
-
-문법의 정확한 의미는 [Cucumber Gherkin 공식 문서](https://cucumber.io/docs/gherkin/reference/)에서 확인한다.

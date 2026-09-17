@@ -69,17 +69,12 @@ description: 조사·분석·구현·리뷰에서 사실 확인, 근거 비교, 
 git rev-parse HEAD
 git status --short
 git log -1 --format='%H %cI %s' -- "$FILE_PATH"
-rg -n -F -- "$SYMBOL" "$SOURCE_DIR"
 
 # 원격 요구사항과 현재 PR·CI 상태 확인
 gh issue view "$ISSUE_URL" --comments
 gh pr view "$PR_URL" --json url,headRefOid,baseRefName,body
 gh pr checks "$PR_URL"
 gh run view "$RUN_ID" --repo "$OWNER_REPO" --json headSha,status,conclusion,url
-
-# 설치된 도구의 지원 명령·옵션 확인
-gh --version
-gh pr create --help
 ```
 
 `HEAD`만으로 미커밋 변경까지 식별되지는 않는다. 로컬 상태와 함께 판단한다. CI 결과는 대상 커밋과 실제 실행한 검사 범위를 확인하고, 링크·첨부 파일의 내용은 해당 형식을 읽을 수 있는 도구로 별도 확인한다.

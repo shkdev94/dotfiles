@@ -68,17 +68,10 @@ description: 구현이나 변경 사항의 검증을 요청할 때 사용한다.
 
 ## 유용한 명령어
 
-변수는 확인한 실제 값으로 채우고 저장소에 설치된 도구를 사용한다. 아래 명령은 필요한 검증만 선택하는 예시다.
+변수는 확인한 실제 값으로 채우고 저장소에 설치된 도구를 사용한다. 아래에서 필요한 검증만 선택한다.
 
 ```bash
-# 대상 코드와 검증 설정 확인
-git rev-parse HEAD
-git status --short
-git diff "$BASE_REF...$HEAD_REF"
-rg --files -g AGENTS.md -g package.json -g '*lock*' -g '*playwright*' -g '*test*' -g '*spec*'
-
-# GitHub 자료를 제공받은 경우
-gh issue view "$ISSUE_URL" --comments
+# PR의 대상 커밋과 CI 결과 확인
 gh pr view "$PR_URL" --json url,body,baseRefName,headRefOid
 gh pr checks "$PR_URL"
 
