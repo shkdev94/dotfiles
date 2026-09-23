@@ -123,7 +123,6 @@
 
             casks = [
               "stablyai/orca/orca"
-              "tailscale-app"
               "ghostty"
               "font-jetbrains-mono-nerd-font"
               "google-chrome"
