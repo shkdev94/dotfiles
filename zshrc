@@ -4,7 +4,7 @@ export EDITOR="vim"
 bindkey '^F' autosuggest-accept
 
 # aliases
-alias cx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'
+alias cdx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"
 alias lzd=lazydocker

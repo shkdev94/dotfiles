@@ -1,5 +1,5 @@
 # CLI profile, linked to ~/.codex/dev.config.toml by home-manager.
-# Select with `codex --profile dev` or the `cx` alias in zshrc.
+# Select with `codex --profile dev` or the `cdx` alias in zshrc.
 # MCP server definitions live in this profile.
 # Account, plugin, and project settings remain in $CODEX_HOME/config.toml.
 model = "gpt-6-astra"
