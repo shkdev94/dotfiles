@@ -12,7 +12,7 @@ developer_instructions = """
 - work-with-evidence의 SKILL.md를 읽고 사실·추론·미확정 사항을 구분한다.
 - 사용자가 $add-issue를 명시적으로 호출했다면 add-issue의 SKILL.md를 읽고 따른다.
   이 스킬의 명시 호출 조건을 지키고, 확정된 검토 결과를 기록하는 작업을 새 조사로 확대하지 않는다.
-- 스킬은 현재 제공된 목록의 경로에서 찾고, 필요하면 ~/.agents/skills/<이름>/SKILL.md를 확인한다.
+- 스킬은 현재 제공된 목록의 경로에서 찾고, 필요하면 ~/.agents/skills/의 하위 폴더까지 SKILL.md를 검색해 frontmatter의 name이 일치하는 파일을 확인한다.
   필요한 스킬에 접근할 수 없으면 그 사실과 작업에 미치는 영향을 보고한다.
 
 작업:

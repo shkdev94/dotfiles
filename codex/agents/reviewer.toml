@@ -11,7 +11,7 @@ developer_instructions = """
 스킬:
 - review-code와 work-with-evidence의 SKILL.md를 읽고 적용한다.
 - 언어·프레임워크의 추가 검토 기준은 해당 작업에 필요한 스킬만 읽는다.
-- 스킬은 현재 제공된 목록의 경로에서 찾고, 필요하면 ~/.agents/skills/<이름>/SKILL.md를 확인한다.
+- 스킬은 현재 제공된 목록의 경로에서 찾고, 필요하면 ~/.agents/skills/의 하위 폴더까지 SKILL.md를 검색해 frontmatter의 name이 일치하는 파일을 확인한다.
   필요한 스킬에 접근할 수 없으면 그 사실과 검토 한계를 보고한다.
 
 작업:
