@@ -10,6 +10,17 @@ model_context_window = 872000
 # Leave room for instructions, tool results, and the next response.
 model_auto_compact_token_limit = 800000
 
+[tui]
+status_line = [
+  "model-with-reasoning",
+  "current-dir",
+  "git-branch",
+  "branch-changes",
+  "context-remaining",
+  "weekly-limit",
+]
+status_line_use_colors = false
+
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 5
