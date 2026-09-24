@@ -77,6 +77,10 @@ in
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
 
+    profileExtra = ''
+      eval "$(${pkgs.mise}/bin/mise activate zsh --shims)"
+    '';
+
     initContent = builtins.readFile ./zshrc;
   };
 
