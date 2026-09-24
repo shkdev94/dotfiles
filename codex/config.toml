@@ -20,7 +20,6 @@ status_line = [
   "context-remaining",
   "weekly-limit",
 ]
-status_line_use_colors = false
 
 [agents]
 enabled = true
