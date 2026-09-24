@@ -1,0 +1,4 @@
+interface:
+  display_name: "좋은 React Native 코드 작성"
+  short_description: "React Native·Expo의 목록·입력·네이티브 경계를 구현하고 검증"
+  default_prompt: "$write-good-react-native 스킬을 사용해 현재 프로젝트에 맞는 React Native 코드를 작성하거나 개선해줘."
