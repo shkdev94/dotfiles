@@ -67,6 +67,7 @@
             pyproject-build-systems
             ;
         };
+      codexAuth = pkgs: pkgs.callPackage ./packages/node/codex-auth { };
       configuration =
         { pkgs, config, ... }:
         {
@@ -74,8 +75,10 @@
             vim
             ripgrep
             mise
+            corepack
             uv
             (browserUse pkgs)
+            (codexAuth pkgs)
             awscli2
             gh
             pigz
@@ -178,6 +181,7 @@
     in
     {
       packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
+      packages.aarch64-darwin.codex-auth = codexAuth nixpkgs.legacyPackages.aarch64-darwin;
 
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {
         modules = [

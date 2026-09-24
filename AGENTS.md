@@ -12,6 +12,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
+- `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
 - `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`에 디렉터리 단위로 연결
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
@@ -53,6 +54,14 @@ nix build .#browser-use
 ```
 
 uv가 별도로 관리하는 Python을 선택하지 않도록 `mise which python`의 실제 경로를 지정한다. `uv.lock`은 직접 편집하지 않는다. `nxu`는 Nix 입력을 갱신하므로 Python 의존성 잠금은 위 절차로 별도 갱신한다. 검증 후 `nxr`로 시스템에 적용한다.
+
+## npm CLI 패키지 관리
+
+Corepack은 `flake.nix`의 `environment.systemPackages`로 설치한다. Nix 패키지에 `pnpm`, `pnpx`, `yarn` 실행 명령이 포함되어 있으므로 별도의 `corepack enable`이나 `npm install -g pnpm`은 필요하지 않다. 프로젝트의 패키지 매니저 버전은 `package.json`의 `packageManager`로 지정하며, 해당 버전의 다운로드와 캐시는 Corepack이 관리한다. 직접 사용하는 Node 버전은 mise로 관리한다.
+
+npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정하고, npm으로 `package-lock.json`을 생성한다. `buildNpmPackage`로 패키징하며 `importNpmLock`이 lock 파일의 무결성 해시로 의존성을 가져온다. 실행에 필요한 Node는 패키지 내부 의존성으로 포함하고, 직접 사용하는 Node 버전은 mise로 관리한다.
+
+버전 변경 후 해당 패키지 폴더에서 `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`로 lock 파일을 갱신한다. `package-lock.json`은 직접 편집하지 않는다. 저장소 루트에서 `nix build .#codex-auth`로 빌드·버전을 검증하고, `nxr`로 시스템에 적용한다.
 
 ## 작업 규칙
 
