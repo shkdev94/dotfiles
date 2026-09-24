@@ -12,7 +12,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
-- `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `dev.config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`에 디렉터리 단위로 연결
+- `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`에 디렉터리 단위로 연결
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
@@ -59,7 +59,7 @@ uv가 별도로 관리하는 Python을 선택하지 않도록 `mise which python
 - CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
 - Mac App Store 앱은 `homebrew.masApps`에 추가한다. 형식은 `이름 = App Store ID`이다.
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
-- 필요한 MCP 서버는 `codex/dev.config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
+- 필요한 MCP 서버는 `codex/config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
 - 머신 구성 이름은 `mbp`(`darwinConfigurations.mbp`)이다.

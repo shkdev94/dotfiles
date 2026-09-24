@@ -48,7 +48,7 @@ in
     ];
   };
 
-  home.file.".codex/dev.config.toml".source = create_symlink "${dotfiles}/codex/dev.config.toml";
+  home.file.".codex/dev.config.toml".source = create_symlink "${dotfiles}/codex/config.toml";
   home.file.".codex/agents".source = create_symlink "${dotfiles}/codex/agents";
 
   home.file.".agents/skills" = {
