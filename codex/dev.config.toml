@@ -26,6 +26,10 @@ status_line_use_colors = false
 enabled = true
 max_concurrent_threads_per_session = 5
 
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
 [mcp_servers.browser-use]
 command = "/run/current-system/sw/bin/browser-use"
 args = ["--mcp"]
