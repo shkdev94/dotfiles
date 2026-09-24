@@ -127,5 +127,4 @@ in
     force = true;
   };
 
-  programs.lazydocker.enable = true;
 }

@@ -7,7 +7,6 @@ bindkey '^F' autosuggest-accept
 alias cdx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"
-alias lzd=lazydocker
 
 # android
 export ANDROID_HOME=$HOME/Library/Android/sdk
