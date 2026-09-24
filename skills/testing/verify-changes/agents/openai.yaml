@@ -1,0 +1,4 @@
+interface:
+  display_name: "변경 사항 검증"
+  short_description: "요구사항 기반 검증과 browser-use headless·디자인 시안 대조"
+  default_prompt: "$verify-changes로 변경 사항을 요구사항과 제공된 자료에 맞춰 검증하고, 디자인 시안이 있으면 레이아웃·타이포그래피·색상까지 비교해 결과와 미검증 범위를 보고해 주세요."
