@@ -48,18 +48,6 @@ in
     ];
   };
 
-  home.file.".agent/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
-  home.file.".agent/skills/commit-changes".source =
-    create_symlink "${dotfiles}/skills/commit-changes";
-  home.file.".agent/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
-  home.file.".agent/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
-  home.file.".agent/skills/verify-changes".source =
-    create_symlink "${dotfiles}/skills/verify-changes";
-  home.file.".agent/skills/write-bdd-scenarios".source =
-    create_symlink "${dotfiles}/skills/write-bdd-scenarios";
-  home.file.".agent/skills/work-with-evidence".source =
-    create_symlink "${dotfiles}/skills/work-with-evidence";
-
   home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
   home.file.".agents/skills/cleanup-merged-pr".source =
     create_symlink "${dotfiles}/skills/cleanup-merged-pr";
