@@ -21,6 +21,9 @@ status_line = [
   "weekly-limit",
 ]
 
+[tui.model_availability_nux]
+gpt-6-astra = 3
+
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 5
