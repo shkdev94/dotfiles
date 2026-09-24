@@ -1,0 +1,15 @@
+# CLI profile, linked to ~/.codex/dev.config.toml by home-manager.
+# Select with `codex --profile dev` or the `cx` alias in zshrc.
+# Account, MCP, plugin, and project settings remain in $CODEX_HOME/config.toml.
+model = "gpt-6-astra"
+model_reasoning_effort = "xhigh"
+
+# Codex model catalog, checked on 2026-09-24: Astra supports up to 872,000.
+# This is the Codex context budget, not the model's advertised API window.
+model_context_window = 872000
+# Leave room for instructions, tool results, and the next response.
+model_auto_compact_token_limit = 800000
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 5
