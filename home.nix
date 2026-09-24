@@ -54,7 +54,10 @@ in
   home.file.".agents/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
   home.file.".agents/skills/commit-changes".source =
     create_symlink "${dotfiles}/skills/commit-changes";
-  home.file.".agents/skills/create-pr".source = create_symlink "${dotfiles}/skills/create-pr";
+  home.file.".agents/skills/create-github-pr".source =
+    create_symlink "${dotfiles}/skills/create-github-pr";
+  home.file.".agents/skills/manage-github-issue".source =
+    create_symlink "${dotfiles}/skills/manage-github-issue";
   home.file.".agents/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
   home.file.".agents/skills/verify-changes".source =
     create_symlink "${dotfiles}/skills/verify-changes";

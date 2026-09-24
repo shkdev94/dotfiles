@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub 이슈 관리"
+  short_description: "GitHub 이슈 조회·등록·수정과 유형·첨부·PR 연결 규칙 처리"
+  default_prompt: "$manage-github-issue로 지정한 GitHub 이슈를 확인하고 요청한 변경을 반영해 주세요."

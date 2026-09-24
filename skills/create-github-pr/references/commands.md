@@ -28,6 +28,17 @@ gh pr checks "$PR_URL"
 
 아래는 [공식 github/gh-stack](https://github.com/github/gh-stack#commands) 기준이다. 같은 이름의 다른 확장에 그대로 적용하지 않는다. `gh extension list`와 `gh stack --help`, 사용할 하위 명령의 `--help`로 설치 상태와 실제 지원 옵션을 확인한다. 없다면 환경의 패키지 관리 규칙을 따르며 임의 설치 대신 일반 PR 명령으로 base·head를 연결할 수 있다.
 
+구현 초기에 스택의 브랜치를 구성할 때는 `gh stack init --help`·`gh stack add --help`를 먼저 확인한다. 브랜치 이름과 시작 ref는 본문에서 정한 작업 단위를 따른다.
+
+```bash
+# 기존 브랜치를 아래 단계부터 등록하거나 없는 브랜치 생성
+gh stack init --base "$BASE_BRANCH" "$FIRST_BRANCH" "$SECOND_BRANCH"
+# 스택 최상단에서 새 단계 생성
+gh stack add "$NEXT_BRANCH"
+```
+
+`init`은 로컬 스택 설정과 브랜치를 변경하고 `git rerere`를 활성화할 수 있다. `add -Am`은 전체 staging·커밋까지 결합하므로 단순 브랜치 생성에 사용하지 않는다. 커밋은 요청 범위와 커밋 스킬의 규칙에 따라 별도로 구성한다.
+
 ```bash
 # 현재 스택 조회 (설치된 공식 확장에서)
 gh stack view --json
