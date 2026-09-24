@@ -48,35 +48,10 @@ in
     ];
   };
 
-  home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
-  home.file.".agents/skills/cleanup-merged-github-pr".source =
-    create_symlink "${dotfiles}/skills/cleanup-merged-github-pr";
-  home.file.".agents/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
-  home.file.".agents/skills/commit-changes".source =
-    create_symlink "${dotfiles}/skills/commit-changes";
-  home.file.".agents/skills/create-github-pr".source =
-    create_symlink "${dotfiles}/skills/create-github-pr";
-  home.file.".agents/skills/manage-github-issue".source =
-    create_symlink "${dotfiles}/skills/manage-github-issue";
-  home.file.".agents/skills/review-code".source = create_symlink "${dotfiles}/skills/review-code";
-  home.file.".agents/skills/verify-changes".source =
-    create_symlink "${dotfiles}/skills/verify-changes";
-  home.file.".agents/skills/write-bdd-scenarios".source =
-    create_symlink "${dotfiles}/skills/write-bdd-scenarios";
-  home.file.".agents/skills/work-with-evidence".source =
-    create_symlink "${dotfiles}/skills/work-with-evidence";
-  home.file.".agents/skills/implement-issue".source =
-    create_symlink "${dotfiles}/skills/implement-issue";
-  home.file.".agents/skills/write-good-code".source =
-    create_symlink "${dotfiles}/skills/write-good-code";
-  home.file.".agents/skills/write-good-typescript".source =
-    create_symlink "${dotfiles}/skills/write-good-typescript";
-  home.file.".agents/skills/write-excalidraw".source =
-    create_symlink "${dotfiles}/skills/write-excalidraw";
-  home.file.".agents/skills/write-ui-unit-test".source =
-    create_symlink "${dotfiles}/skills/write-ui-unit-test";
-  home.file.".agents/skills/write-unit-test".source =
-    create_symlink "${dotfiles}/skills/write-unit-test";
+  home.file.".agents/skills" = {
+    source = create_symlink "${dotfiles}/skills";
+    force = true;
+  };
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";
