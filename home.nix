@@ -49,8 +49,8 @@ in
   };
 
   home.file.".agents/skills/add-issue".source = create_symlink "${dotfiles}/skills/add-issue";
-  home.file.".agents/skills/cleanup-merged-pr".source =
-    create_symlink "${dotfiles}/skills/cleanup-merged-pr";
+  home.file.".agents/skills/cleanup-merged-github-pr".source =
+    create_symlink "${dotfiles}/skills/cleanup-merged-github-pr";
   home.file.".agents/skills/create-branch".source = create_symlink "${dotfiles}/skills/create-branch";
   home.file.".agents/skills/commit-changes".source =
     create_symlink "${dotfiles}/skills/commit-changes";
