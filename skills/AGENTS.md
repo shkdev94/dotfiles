@@ -4,7 +4,8 @@
 
 ## 구성과 표현
 
-- 스킬은 `skills/<skill-name>/SKILL.md`에 작성한다. 디렉터리명과 frontmatter의 `name`을 일치시키고, 영문 소문자·숫자·하이픈으로 짧게 이름을 짓는다. 이름은 `create-branch`, `review-code`, `write-unit-test`처럼 동사 원형으로 시작해 수행할 작업을 드러낸다.
+- 스킬은 `skills/<skill-name>/SKILL.md`에 작성한다. 관련 스킬은 `skills/<group>/<skill-name>/SKILL.md`처럼 주제별 폴더로 묶을 수 있다. 그룹 폴더에는 `SKILL.md`를 두지 않으며, 각 하위 스킬은 독립적으로 호출되고 상위 스킬의 지침을 상속하지 않는다.
+- 실제 스킬 디렉터리명과 frontmatter의 `name`을 일치시키고, 영문 소문자·숫자·하이픈으로 짧게 이름을 짓는다. 이름은 `create-branch`, `review-code`, `write-unit-test`처럼 동사 원형으로 시작해 수행할 작업을 드러낸다. 그룹 폴더명은 `figma`처럼 주제를 나타내며, 호출 이름은 그룹 밖의 스킬과도 충돌하지 않게 짓는다.
 - `SKILL.md`의 YAML frontmatter에는 `name`과 `description`을 포함한다. `description`에는 무엇을 하는 스킬인지와 언제 사용하는지를 간결하게 적는다.
 - 설명과 본문은 한국어로 작성하고, 명령어·경로·API 이름은 원문을 유지한다.
 - 본문 제목(`# 스킬 제목`) 다음 첫 섹션은 반드시 `## 목표와 역할`로 시작한다. 달성할 목표, 스킬이 담당하는 범위와 결과물을 간결하게 적는다.
