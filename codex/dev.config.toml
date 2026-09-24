@@ -1,6 +1,7 @@
 # CLI profile, linked to ~/.codex/dev.config.toml by home-manager.
 # Select with `codex --profile dev` or the `cx` alias in zshrc.
-# Account, MCP, plugin, and project settings remain in $CODEX_HOME/config.toml.
+# MCP server definitions live in this profile.
+# Account, plugin, and project settings remain in $CODEX_HOME/config.toml.
 model = "gpt-6-astra"
 model_reasoning_effort = "xhigh"
 
@@ -24,3 +25,7 @@ status_line_use_colors = false
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 5
+
+[mcp_servers.browser-use]
+command = "/run/current-system/sw/bin/browser-use"
+args = ["--mcp"]

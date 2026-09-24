@@ -2,6 +2,22 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    uv2nix = {
+      url = "github:pyproject-nix/uv2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+    };
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+      inputs.uv2nix.follows = "uv2nix";
+    };
+
     nix-darwin = {
       url = "github:nix-darwin/nix-darwin/master";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -36,8 +52,21 @@
       homebrew-core,
       homebrew-cask,
       homebrew-orca,
+      pyproject-nix,
+      uv2nix,
+      pyproject-build-systems,
     }:
     let
+      browserUse =
+        pkgs:
+        import ./packages/python/browser-use {
+          inherit
+            pkgs
+            pyproject-nix
+            uv2nix
+            pyproject-build-systems
+            ;
+        };
       configuration =
         { pkgs, config, ... }:
         {
@@ -46,6 +75,7 @@
             ripgrep
             mise
             uv
+            (browserUse pkgs)
             awscli2
             gh
             pigz
@@ -147,6 +177,8 @@
         };
     in
     {
+      packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
+
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {
         modules = [
           nix-homebrew.darwinModules.nix-homebrew

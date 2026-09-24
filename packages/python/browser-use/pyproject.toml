@@ -1,0 +1,9 @@
+[project]
+name = "dotfiles-browser-use"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = ["browser-use==0.13.10"]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
