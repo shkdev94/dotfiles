@@ -75,6 +75,8 @@
             vim
             neovim
             tmux
+            lazygit
+            lazydocker
             ripgrep
             fd
             fzf
