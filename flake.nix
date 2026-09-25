@@ -172,7 +172,7 @@
             casks = [
               "stablyai/orca/orca"
               "ghostty"
-              "font-jetbrains-mono-nerd-font"
+              "font-hack-nerd-font"
               "google-chrome"
               "visual-studio-code"
               "android-studio"
