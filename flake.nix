@@ -177,7 +177,6 @@
               "visual-studio-code"
               "android-studio"
               "aldente"
-              "chatgpt"
               "codex"
               "karabiner-elements"
               "logi-options+"
