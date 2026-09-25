@@ -73,7 +73,20 @@
         {
           environment.systemPackages = with pkgs; [
             vim
+            neovim
+            tmux
             ripgrep
+            fd
+            fzf
+            jq
+            lua-language-server
+            nil
+            typescript-language-server
+            vscode-langservers-extracted
+            tailwindcss-language-server
+            biome
+            stylua
+            tree-sitter
             mise
             corepack
             uv

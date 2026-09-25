@@ -66,6 +66,16 @@ in
     force = true;
   };
 
+  xdg.configFile."nvim" = {
+    source = create_symlink "${dotfiles}/nvim";
+    force = true;
+  };
+
+  xdg.configFile."tmux" = {
+    source = create_symlink "${dotfiles}/tmux";
+    force = true;
+  };
+
   xdg.configFile."mise/config.toml" = {
     source = create_symlink "${dotfiles}/mise/config.toml";
     force = true;
@@ -95,7 +105,7 @@ in
       push = {
         autoSetupRemote = true;
       };
-      core.editor = "vim";
+      core.editor = "nvim";
       merge.conflictstyle = "zdiff3";
     };
   };

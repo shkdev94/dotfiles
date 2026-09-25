@@ -1,9 +1,11 @@
-export EDITOR="vim"
+export EDITOR="nvim"
 
 # keybindings
 bindkey '^F' autosuggest-accept
 
 # aliases
+alias v='nvim'
+alias tw='~/.config/tmux/bin/workspace'
 alias cdx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"

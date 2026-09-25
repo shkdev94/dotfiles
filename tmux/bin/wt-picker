@@ -1,0 +1,43 @@
+#!/usr/bin/env zsh
+# Render worktrees for Workspace. Direct invocations open its Worktrees tab.
+#
+# Filtering is done here, not by fzf (--disabled + reload on every keystroke),
+# so results stay grouped under their repo header while you type. Each
+# whitespace-separated term must appear (case-insensitive) in "repo branch".
+#
+# Rows are "display<TAB>path<TAB>kind" where kind is h (repo header) or w
+# (worktree). Headers are shown but skipped by cursor movement: after each
+# move, a transform checks {3} and moves once more if it landed on a header.
+set -euo pipefail
+bin=${0:A:h}
+
+if [[ ${1:-} == --render ]]; then
+  terms=(${=${2:-}})
+  bold=$'\e[1m' dim=$'\e[2m' green=$'\e[32m' reset=$'\e[0m'
+  branch_icon=$'\xee\x82\xa0'   # U+E0A0, Nerd Font git-branch glyph (raw bytes: locale-independent)
+  # first pass: read all rows, compute the worktree-name column width
+  rows=() w=0
+  while IFS=$'\t' read -r repo branch dir live is_main; do
+    rows+=("$repo	$branch	$dir	$live	$is_main")
+    (( ${(m)#dir:t} > w )) && w=${(m)#dir:t}
+  done < "$WT_CACHE"
+  typeset -A maindir
+  prev=""
+  for row in $rows; do
+    IFS=$'\t' read -r repo branch dir live is_main <<< "$row"
+    (( is_main )) && maindir[$repo]=$dir
+    name=${dir:t}
+    hay="${(L)repo} ${(L)name} ${(L)branch}"
+    for t in $terms; do [[ $hay == *${(L)t}* ]] || continue 2; done
+    if [[ $repo != $prev ]]; then
+      print -r -- "${bold}${repo}${reset}	${maindir[$repo]:-$dir}	h"   # header opens main worktree
+      prev=$repo
+    fi
+    mark=" "; (( live )) && mark="${green}●${reset}"
+    pad=$(printf "%*s" $(( w - ${(m)#name} )) "")
+    print -r -- "  ${mark} ${name}${pad}  ${dim}${branch_icon} ${branch}${reset}	$dir	w"
+  done
+  exit 0
+fi
+
+exec "$bin/workspace" worktrees
