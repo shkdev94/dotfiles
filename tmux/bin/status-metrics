@@ -1,0 +1,28 @@
+#!/bin/sh
+
+export LC_ALL=C
+
+cpu=$(top -l 1 -n 0 -s 0 2>/dev/null | awk '
+  /^CPU usage:/ {
+    idle = $(NF - 1)
+    sub(/%$/, "", idle)
+    printf "%.0f%%", 100 - idle
+    exit
+  }
+')
+ram=$(memory_pressure -Q 2>/dev/null | awk '
+  /^System-wide memory free percentage:/ {
+    free = $NF
+    sub(/%$/, "", free)
+    printf "%d%%", 100 - free
+    exit
+  }
+')
+disk=$(df -H "$HOME" 2>/dev/null | awk 'NR == 2 { print $4 "B"; exit }')
+battery=$(pmset -g batt 2>/dev/null | awk '
+  match($0, /[0-9]+%/) { print substr($0, RSTART, RLENGTH); exit }
+')
+clock=$(date '+%H:%M')
+
+printf '#[bg=#61afef,fg=#282c34,bold] CPU %s #[bg=#282c34] #[bg=#c678dd,fg=#282c34,bold] RAM %s #[bg=#282c34] #[bg=#98c379,fg=#282c34,bold] DISK %s #[bg=#282c34] #[bg=#e5c07b,fg=#282c34,bold] BAT %s #[bg=#282c34] #[bg=#56b6c2,fg=#282c34,bold] %s #[default]\n' \
+  "${cpu:---}" "${ram:---}" "${disk:---}" "${battery:---}" "$clock"
