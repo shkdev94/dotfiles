@@ -94,8 +94,7 @@ case ${1:-} in
         h | w)
           if "$bin/wt-open" "$value" "${WS_CLIENT:-}"; then
             if [[ -n ${WS_CLIENT:-} ]]; then
-              "$bin/workspace-sidebar" follow "$WS_CLIENT"
-              tmux select-pane -R -t "$TMUX_PANE"
+              "$bin/workspace-sidebar" hide "$WS_CLIENT"
             fi
           else
             print -u2 -- 'worktree를 열지 못했습니다.'
