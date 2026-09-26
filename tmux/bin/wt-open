@@ -15,7 +15,9 @@ if ! name=$(wt_session_for_path "$dir"); then
 fi
 
 if [[ -n ${TMUX:-} ]]; then
-  tmux switch-client -t "=$name"
+  client_args=()
+  [[ -z ${2:-} ]] || client_args=(-c "$2")
+  tmux switch-client "${client_args[@]}" -t "=$name"
 else
   exec tmux attach-session -t "=$name"
 fi

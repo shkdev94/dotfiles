@@ -1,0 +1,128 @@
+#!/usr/bin/env zsh
+# Keep each client's Workspace process alive while moving its pane between
+# the current window and a detached session used only while it is hidden.
+set -euo pipefail
+bin=${0:A:h}
+parking_session=_Workspace
+
+command=${1:-toggle}
+shift $(( $# > 0 ))
+tab=''
+if [[ $command == show ]]; then
+  tab=${1:-worktrees}
+  shift $(( $# > 0 ))
+  case $tab in
+    worktrees | accounts) ;;
+    *) print -u2 -- "알 수 없는 탭: $tab"; exit 2 ;;
+  esac
+fi
+client=${1:-}
+
+# Hooks and key bindings can arrive together. Serialize pane moves so a hide
+# cannot be undone by a follow operation that saw its previous state.
+tmux wait-for -L workspace-sidebar
+trap 'tmux wait-for -U workspace-sidebar 2>/dev/null || true' EXIT
+
+find_sidebar() {
+  local pane owner
+  while IFS=$'\t' read -r pane owner; do
+    if [[ $owner == "$1" ]]; then
+      print -r -- "$pane"
+      return 0
+    fi
+  done < <(tmux list-panes -a -F $'#{pane_id}\t#{@workspace-client}')
+  return 1
+}
+
+client_window() {
+  tmux display-message -p -c "$1" '#{window_id}'
+}
+
+move_sidebar() {
+  local pane=$1 window=$2
+  [[ $(tmux display-message -p -t "$pane" '#{window_id}') == "$window" ]] && return 0
+  # -d leaves focus on the destination's editor rather than the sidebar.
+  tmux join-pane -dhbf -l 30% -s "$pane" -t "$window"
+}
+
+hide_sidebar() {
+  local pane=$1 anchor=''
+  [[ $(tmux show-options -pqv -t "$pane" @workspace-visible) == 1 ]] || return 0
+  tmux set-option -p -t "$pane" @workspace-visible 0
+  if ! tmux has-session -t "=$parking_session" 2>/dev/null; then
+    # Start outside a checkout so wt-open never mistakes this for its session.
+    anchor=$(tmux new-session -d -s "$parking_session" -c / -P -F '#{pane_id}' /bin/cat)
+  fi
+  if ! tmux break-pane -d -s "$pane" -t "=$parking_session:"; then
+    tmux set-option -p -t "$pane" @workspace-visible 1
+    [[ -z $anchor ]] || tmux kill-pane -t "$anchor"
+    return 1
+  fi
+  # No permanent placeholder: moving the last sidebar out removes the session.
+  [[ -z $anchor ]] || tmux kill-pane -t "$anchor"
+}
+
+follow_sidebar() {
+  local owner=$1 pane window
+  pane=$(find_sidebar "$owner") || return 0
+  [[ $(tmux show-options -pqv -t "$pane" @workspace-visible) == 1 ]] || return 0
+  window=$(client_window "$owner") || return 0
+  [[ $(tmux display-message -p -t "$window" '#{session_name}') != "$parking_session" ]] || return 0
+  move_sidebar "$pane" "$window"
+}
+
+if [[ $command == follow && -z $client ]]; then
+  while IFS= read -r owner; do
+    follow_sidebar "$owner"
+  done < <(tmux list-clients -F '#{client_name}')
+  exit 0
+fi
+
+if [[ -z $client ]]; then
+  client=$(tmux display-message -p '#{client_name}')
+fi
+[[ -n $client ]] || { print -u2 -- 'Workspace는 연결된 tmux 클라이언트가 필요합니다.'; exit 1; }
+pane=$(find_sidebar "$client") || pane=''
+
+case $command in
+  follow) follow_sidebar "$client"; exit 0 ;;
+  close)
+    [[ -z $pane ]] || tmux kill-pane -t "$pane"
+    exit 0
+    ;;
+  hide)
+    [[ -z $pane ]] || hide_sidebar "$pane"
+    exit 0
+    ;;
+  toggle)
+    if [[ -n $pane && $(tmux show-options -pqv -t "$pane" @workspace-visible) == 1 ]]; then
+      hide_sidebar "$pane"
+      exit 0
+    fi
+    ;;
+  show) ;;
+  *) print -u2 -- "알 수 없는 작업: $command"; exit 2 ;;
+esac
+
+window=$(client_window "$client")
+if [[ $(tmux display-message -p -t "$window" '#{session_name}') == "$parking_session" ]]; then
+  exit 0
+fi
+if [[ -z $pane ]]; then
+  pane=$(tmux split-window -hbf -l 30% -t "$window" \
+    -e "WS_CLIENT=$client" -P -F '#{pane_id}' \
+    "exec ${(q)bin}/workspace --sidebar ${tab:-worktrees}")
+  tmux set-option -p -t "$pane" @workspace-client "$client"
+  tmux set-option -p -t "$pane" @workspace-visible 1
+else
+  tmux set-option -p -t "$pane" @workspace-visible 1
+  move_sidebar "$pane" "$window"
+  tmux select-pane -t "$pane"
+  if [[ -n $tab && $(tmux show-options -pqv -t "$pane" @workspace-tab) != "$tab" ]]; then
+    socket=$(tmux show-options -pqv -t "$pane" @workspace-socket)
+    workspace=${(q)bin}/workspace
+    actions="execute-silent($workspace --set-tab $tab)+untrack-current+clear-query+reload-sync($workspace --render {q})+transform-header($workspace --header)+transform-footer($workspace --footer)+transform-prompt($workspace --prompt)+transform($workspace --input-action)"
+    curl --silent --show-error --fail --max-time 2 --unix-socket "$socket" \
+      -X POST --data-binary "$actions" http://localhost/ > /dev/null
+  fi
+fi

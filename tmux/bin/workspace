@@ -3,6 +3,14 @@ set -euo pipefail
 
 self=${0:A}
 bin=${self:h}
+command_path=${(q)self}
+
+pause() {
+  print
+  print -n -- '아무 키나 누르면 Workspace로 돌아갑니다...'
+  read -k 1 || true
+  print
+}
 
 current_tab() {
   print -r -- "$(<"$WS_TAB_FILE")"
@@ -13,7 +21,7 @@ case ${1:-} in
     if [[ $(current_tab) == worktrees ]]; then
       exec "$bin/wt-picker" --render "${2:-}"
     else
-      exec "$bin/codex-account-picker" --render "${2:-}"
+      exec "$bin/codex-account-picker" --render
     fi
     ;;
   --preview)
@@ -26,10 +34,20 @@ case ${1:-} in
     ;;
   --toggle)
     if [[ $(current_tab) == worktrees ]]; then
-      print -r -- accounts > "$WS_TAB_FILE"
+      exec "$self" --set-tab accounts
     else
-      "$bin/wt-list" > "$WT_CACHE"
-      print -r -- worktrees > "$WS_TAB_FILE"
+      exec "$self" --set-tab worktrees
+    fi
+    ;;
+  --set-tab)
+    case ${2:-} in
+      worktrees) "$bin/wt-list" > "$WT_CACHE" ;;
+      accounts) ;;
+      *) exit 2 ;;
+    esac
+    print -r -- "$2" > "$WS_TAB_FILE"
+    if [[ -n ${WS_CLIENT:-} ]]; then
+      tmux set-option -p -t "$TMUX_PANE" @workspace-tab "$2"
     fi
     exit 0
     ;;
@@ -39,17 +57,17 @@ case ${1:-} in
     ;;
   --header)
     if [[ $(current_tab) == worktrees ]]; then
-      print -r -- $'\e[7m 1 Worktrees \e[0m   2 Accounts'
+      print -r -- $'\e[7m 1 Worktrees \e[0m   2 AI Providers'
     else
-      print -r -- $'1 Worktrees   \e[7m 2 Accounts \e[0m'
+      print -r -- $'1 Worktrees   \e[7m 2 AI Providers \e[0m'
     fi
     exit 0
     ;;
   --footer)
     if [[ $(current_tab) == worktrees ]]; then
-      print -r -- 'enter: 열기   tab: 전환   ctrl-r: 새로고침   esc: 닫기'
+      print -r -- $'enter 열기 · tab 전환\nctrl-r 새로고침 · esc 숨김'
     else
-      print -r -- 'enter: 전환   ctrl-a: 추가   ctrl-g: 기기 코드   ctrl-d: 삭제   ctrl-l: 로그아웃   tab: 전환'
+      print -r -- $'enter 전환 · tab 탭 · esc 숨김\n^a 추가 · ^g 기기 코드\n^d 삭제 · ^l 로그아웃'
     fi
     exit 0
     ;;
@@ -61,7 +79,73 @@ case ${1:-} in
     fi
     exit 0
     ;;
+  --input-action)
+    if [[ $(current_tab) == worktrees ]]; then
+      print -r -- show-input
+    else
+      print -r -- hide-input
+    fi
+    exit 0
+    ;;
+  --action)
+    key=${2:-enter} value=${3:-} kind=${4:-} display=${5:-}
+    if [[ $key == enter ]]; then
+      case $kind in
+        h | w)
+          if "$bin/wt-open" "$value" "${WS_CLIENT:-}"; then
+            if [[ -n ${WS_CLIENT:-} ]]; then
+              "$bin/workspace-sidebar" follow "$WS_CLIENT"
+              tmux select-pane -R -t "$TMUX_PANE"
+            fi
+          else
+            print -u2 -- 'worktree를 열지 못했습니다.'
+            pause
+            exit 1
+          fi
+          exit 0
+          ;;
+        a) action=(switch "$value") ;;
+        *) print -r -- '선택할 항목이 없습니다.'; pause; exit 0 ;;
+      esac
+    else
+      if [[ $(current_tab) != accounts ]]; then
+        print -r -- '계정 작업은 AI Providers 탭에서 사용하세요.'
+        pause
+        exit 0
+      fi
+      case $key in
+        ctrl-a) action=(add) ;;
+        ctrl-g) action=(add-device) ;;
+        ctrl-l) action=(logout) ;;
+        ctrl-d)
+          if [[ $kind != a ]]; then
+            print -r -- '삭제할 계정을 선택하세요.'
+            pause
+            exit 0
+          fi
+          action=(remove "$value" "$display")
+          ;;
+        *) exit 2 ;;
+      esac
+    fi
+    if ! "$bin/codex-account-picker" --action "${action[@]}"; then
+      print -u2 -- '작업이 완료되지 않았습니다.'
+    fi
+    pause
+    exit 0
+    ;;
 esac
+
+sidebar=0
+if [[ ${1:-} == --sidebar ]]; then
+  sidebar=1
+  shift
+elif [[ -n ${TMUX:-} ]]; then
+  if [[ $# == 0 ]]; then
+    exec "$bin/workspace-sidebar" toggle
+  fi
+  exec "$bin/workspace-sidebar" show "$1"
+fi
 
 tab=${1:-worktrees}
 case $tab in
@@ -69,41 +153,40 @@ case $tab in
   *) print -u2 -- "알 수 없는 탭: $tab"; exit 2 ;;
 esac
 
-tab_file=$(mktemp -t workspace-tab) || exit 1
-cache=$(mktemp -t workspace-wt) || {
-  rm -f -- "$tab_file"
-  exit 1
-}
-trap 'rm -f -- "$tab_file" "$cache"' EXIT
-print -r -- "$tab" > "$tab_file"
-"$bin/wt-list" > "$cache"
-export WS_TAB_FILE=$tab_file WT_CACHE=$cache
+# Keep the Unix socket path short enough for macOS's sockaddr_un limit.
+state_dir=$(mktemp -d /tmp/workspace.XXXXXXXX)
+trap 'rm -rf -- "$state_dir"' EXIT
+trap 'exit 0' HUP INT TERM
+export WS_TAB_FILE=$state_dir/tab WT_CACHE=$state_dir/worktrees
+"$self" --set-tab "$tab"
 
-pause() {
-  print
-  print -n -- '아무 키나 누르면 Workspace로 돌아갑니다...'
-  read -k 1 || true
-  print
-}
-
-tab_actions="execute-silent($self --toggle)+clear-query+reload-sync($self --render {q})+transform-header($self --header)+transform-footer($self --footer)+transform-prompt($self --prompt)+refresh-preview"
+tab_actions="execute-silent($command_path --toggle)+untrack-current+clear-query+reload-sync($command_path --render {q})+transform-header($command_path --header)+transform-footer($command_path --footer)+transform-prompt($command_path --prompt)+transform($command_path --input-action)"
+action_args=(--expect=ctrl-a,ctrl-g,ctrl-d,ctrl-l)
+if (( sidebar )); then
+  tmux set-option -p -t "$TMUX_PANE" @workspace-socket "$state_dir/fzf.sock"
+  action_args=(--listen="$state_dir/fzf.sock" --id-nth=2,3)
+  for key in enter ctrl-a ctrl-g ctrl-d ctrl-l; do
+    action_args+=(--bind "${key}:execute($command_path --action $key {2} {3} {1})+track-current+reload-sync($command_path --render {q})")
+  done
+  action_args+=(--bind "esc,ctrl-c:execute-silent(${(q)bin}/workspace-sidebar hide ${(q)WS_CLIENT})")
+fi
 
 while true; do
-  selection=$(fzf --disabled --ansi --cycle --layout=reverse --border=rounded \
+  selection=$(fzf --disabled --ansi --read0 --wrap --wrap-sign='      ' --ellipsis='' --cycle --layout=reverse --border=rounded \
     --border-label=Workspace --header-first \
     --delimiter=$'\t' --with-nth=1 \
-    --bind "start:reload-sync($self --render {q})" \
-    --bind "change:reload($self --render {q})" \
+    --query="${WS_QUERY:-}" \
+    --bind "start:transform($command_path --input-action)+reload-sync($command_path --render {q})" \
+    --bind "change:untrack-current+reload($command_path --render {q})" \
     --bind "tab,shift-tab:$tab_actions" \
-    --bind "ctrl-r:execute-silent($self --refresh)+reload-sync($self --render {q})" \
+    --bind "ctrl-r:execute-silent($command_path --refresh)+reload-sync($command_path --render {q})" \
     --bind "load:transform(test {3} = h -o {3} = g && echo down)" \
     --bind "down,ctrl-j,ctrl-n:down+transform(test {3} = h -o {3} = g && echo down)" \
     --bind "up,ctrl-k,ctrl-p:up+transform(test {3} = h -o {3} = g && echo up)" \
-    --expect=ctrl-a,ctrl-g,ctrl-d,ctrl-l \
+    "${action_args[@]}" \
     --prompt="$("$self" --prompt)" \
     --header="$("$self" --header)" \
     --footer="$("$self" --footer)" \
-    --preview="$self --preview {2} {3}" --preview-window=right:35% \
     --color='fg:#abb2bf,bg:-1,hl:#61afef,fg+:#e5e5e5,bg+:#3e4452,hl+:#61afef,info:#565c64,prompt:#98c379,pointer:#e06c75,marker:#e5c07b,spinner:#c678dd,header:#565c64,border:#3e4452,gutter:-1') || exit 0
 
   key=${selection%%$'\n'*}
@@ -118,44 +201,8 @@ while true; do
     kind=${rest##*$'\t'}
   fi
 
-  if [[ $key == '' ]]; then
-    case $kind in
-      h | w)
-        "$bin/wt-open" "$value"
-        exit $?
-        ;;
-      a) action=(switch "$value") ;;
-      *) print -r -- '선택할 항목이 없습니다.'; pause; continue ;;
-    esac
-  else
-    if [[ $(current_tab) != accounts ]]; then
-      print -r -- '계정 작업은 Accounts 탭에서 사용하세요.'
-      pause
-      continue
-    fi
-    case $key in
-      ctrl-a) action=(add) ;;
-      ctrl-g) action=(add-device) ;;
-      ctrl-l) action=(logout) ;;
-      ctrl-d)
-        if [[ $kind != a ]]; then
-          print -r -- '삭제할 계정을 선택하세요.'
-          pause
-          continue
-        fi
-        action=(remove "$value" "$display")
-        ;;
-      *) continue ;;
-    esac
+  "$self" --action "${key:-enter}" "$value" "$kind" "$display"
+  if [[ -z $key && ( $kind == h || $kind == w ) ]]; then
+    exit 0
   fi
-
-  if "$bin/codex-account-picker" --action "${action[@]}"; then
-    action_status=0
-  else
-    action_status=$?
-  fi
-  if (( action_status != 0 )); then
-    print -u2 -- '작업이 완료되지 않았습니다.'
-  fi
-  pause
 done

@@ -12,9 +12,9 @@ cleanup() {
 trap cleanup EXIT
 
 render_accounts() {
-  local query=${1:-} account_json rows
+  local account_json rows row
   account_json=$(codex-auth list --skip-api --json) || return 1
-  rows=$(print -r -- "$account_json" | jq -r --arg query "$query" '
+  rows=$(print -r -- "$account_json" | jq -r '
     def clean: tostring | gsub("[\\t\\r\\n]"; " ");
     if (.accounts | length) == 0 then
       ["  등록된 계정이 없습니다.", "", "e"] | @tsv
@@ -23,8 +23,6 @@ render_accounts() {
       (.alias // .account_name // .email // .account_key | clean) as $name |
       (.email // "" | clean) as $email |
       (.plan // "" | clean) as $plan |
-      select((($name + " " + $email + " " + $plan) | ascii_downcase) |
-        contains($query | ascii_downcase)) |
       [
         "  " + (if .active then "● " else "  " end) +
         (.number | tostring) + "  " + $name +
@@ -36,8 +34,10 @@ render_accounts() {
     end
   ') || return 1
   [[ -n $rows ]] || return 0
-  print -r -- $'\e[1mCodex\e[0m\t\tg'
-  print -r -- "$rows"
+  print -rn -- $'\e[1mCodex\e[0m\t\tg\0'
+  while IFS= read -r row; do
+    print -rn -- "$row"$'\0'
+  done <<< "$rows"
 }
 
 preview_account() {
