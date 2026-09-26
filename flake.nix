@@ -104,6 +104,11 @@
             docker-buildx
           ];
 
+          fonts.packages = [
+            pkgs.nerd-fonts.hack
+            pkgs.d2coding
+          ];
+
           # colima has no login item of its own, so start the VM at login
           launchd.user.agents.colima = {
             command = "${pkgs.colima}/bin/colima start";
@@ -172,7 +177,6 @@
             casks = [
               "stablyai/orca/orca"
               "ghostty"
-              "font-hack-nerd-font"
               "google-chrome"
               "visual-studio-code"
               "android-studio"
