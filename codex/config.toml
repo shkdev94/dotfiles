@@ -2,7 +2,7 @@
 # Select with `codex --profile dev` or the `cdx` alias in zshrc.
 # MCP server definitions live in this profile.
 # Account, plugin, and project settings remain in $CODEX_HOME/config.toml.
-model = "gpt-6-astra"
+model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
 
 # Codex model catalog, checked on 2026-09-24: Astra supports up to 872,000.
@@ -22,7 +22,7 @@ status_line = [
 ]
 
 [tui.model_availability_nux]
-gpt-6-astra = 3
+gpt-6-astra = 4
 
 [agents]
 enabled = true

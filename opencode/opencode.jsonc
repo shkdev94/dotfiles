@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "openai/gpt-6-astra",
+  "model": "openai/gpt-6-sol",
   "default_agent": "build",
   "shell": "/bin/zsh",
   // Homebrew owns the executable; its tap is pinned by flake.lock.
