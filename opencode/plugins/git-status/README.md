@@ -4,7 +4,7 @@ OpenCode V2 CLI plugin that replaces the right sidebar's built-in content with
 the current session's Git changes. Conflicts, staged, unstaged, and untracked files are listed by default;
 files with both staged and unstaged edits appear in both groups. The heading
 counts distinct uncommitted files and shows upstream ahead/behind counts when
-available.
+available. When there are no uncommitted files, the sidebar content is blank.
 
 The plugin refreshes every three seconds while the sidebar is mounted. It uses
 `git status` without modifying the working tree and shows an unavailable state
