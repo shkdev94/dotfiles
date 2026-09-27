@@ -6,6 +6,7 @@ require("snacks").setup({
 
   explorer = {
     enabled = true,
+    replace_netrw = false,
   },
   image = {
     enabled = true,
