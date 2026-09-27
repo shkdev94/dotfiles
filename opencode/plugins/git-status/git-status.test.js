@@ -44,7 +44,8 @@ test("변경이 없으면 비어 있는 그룹과 0개의 파일을 반환한다
   // 상태 정보를 변환한다.
   const status = parseGitStatus(output)
 
-  // 변경이 없을 때 사이드바가 비어 있도록 빈 상태를 보존한다.
+  // 헤더에는 브랜치와 0개를 표시하고 파일 목록은 표시하지 않도록 빈 그룹을 보존한다.
+  assert.equal(status.branch, "main")
   assert.equal(status.changed, 0)
   assert.deepEqual(status.groups, { conflicts: [], staged: [], unstaged: [], untracked: [] })
 })

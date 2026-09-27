@@ -58,7 +58,7 @@ function GitChanges(props: { directory: string }) {
     <box flexDirection="column">
       <Show when={status()} fallback={<text>{error() ? "Git 상태를 읽을 수 없음" : "Git 확인 중…"}</text>}>
         {(result) => (
-          <Show when={result().changed > 0}>
+          <>
             <text>{`git · ${result().branch} · ${result().changed} uncommitted${result().ahead ? ` ↑${result().ahead}` : ""}${result().behind ? ` ↓${result().behind}` : ""}`}</text>
             <For each={sections}>
               {(section) => (
@@ -71,7 +71,7 @@ function GitChanges(props: { directory: string }) {
                 </Show>
               )}
             </For>
-          </Show>
+          </>
         )}
       </Show>
     </box>
