@@ -1,18 +1,24 @@
 vim.pack.add({ { src = "https://github.com/nickjvandyke/opencode.nvim", version = "main" } })
 
-local command = "opencode --auto"
-local terminal_opts = {
-  win = {
-    position = "right",
-    width = 0.4,
-    enter = true,
-  },
-}
+local terminals = {}
+
+local function get_terminal()
+  local directory = vim.fn.getcwd()
+  if not terminals[directory] then
+    terminals[directory] = require("toggleterm.terminal").Terminal:new({
+      cmd = "opencode --auto",
+      dir = directory,
+      hidden = true,
+      display_name = "OpenCode",
+    })
+  end
+  return terminals[directory]
+end
 
 vim.g.opencode_opts = {
   server = {
     start = function()
-      require("snacks.terminal").open(command, terminal_opts)
+      get_terminal():open()
     end,
   },
 }
@@ -26,7 +32,7 @@ vim.keymap.set({ "n", "x" }, "<leader>os", function()
 end, { desc = "OpenCode prompts and commands" })
 
 vim.keymap.set("n", "<leader>ot", function()
-  require("snacks.terminal").toggle(command, terminal_opts)
+  get_terminal():toggle()
 end, { desc = "Toggle OpenCode" })
 
 vim.keymap.set({ "n", "x" }, "go", function()

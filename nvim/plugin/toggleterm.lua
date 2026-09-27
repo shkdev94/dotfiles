@@ -2,12 +2,16 @@ vim.pack.add({ "https://github.com/akinsho/toggleterm.nvim" })
 
 require("toggleterm").setup({
   open_mapping = [[<c-\>]],
-  direction = "vertical",
-  size = function(term)
-    if term.direction == "vertical" then
-      return math.floor(vim.o.columns * 0.4)
-    end
-  end,
+  direction = "float",
+  float_opts = {
+    border = "rounded",
+    width = function()
+      return math.floor(vim.o.columns * 0.9)
+    end,
+    height = function()
+      return math.floor(vim.o.lines * 0.85)
+    end,
+  },
   hide_number = false,
 })
 
@@ -45,8 +49,7 @@ end
 
 vim.cmd("autocmd! TermOpen term://* lua set_terminal_keymaps()")
 
-vim.keymap.set("n", "<leader>1", ":1ToggleTerm<CR>", { noremap = true, silent = true })
-vim.keymap.set("n", "<leader>2", ":2ToggleTerm<CR>", { noremap = true, silent = true })
-vim.keymap.set("n", "<leader>3", ":3ToggleTerm<CR>", { noremap = true, silent = true })
-vim.keymap.set("n", "<leader>4", ":4ToggleTerm<CR>", { noremap = true, silent = true })
-vim.keymap.set("n", "<leader>5", ":5ToggleTerm<CR>", { noremap = true, silent = true })
+for number = 0, 9 do
+  local terminal = number == 0 and 10 or number
+  vim.keymap.set("n", "<leader>" .. number, "<cmd>" .. terminal .. "ToggleTerm<CR>", { noremap = true, silent = true })
+end
