@@ -67,7 +67,7 @@ case ${1:-} in
     if [[ $(current_tab) == worktrees ]]; then
       print -r -- $'enter 열기 · tab 전환\nctrl-r 새로고침 · esc 숨김'
     else
-      print -r -- $'enter 전환 · tab 탭 · esc 숨김\n^a 추가 · ^g 기기 코드\n^d 삭제 · ^l 로그아웃'
+      print -r -- $'enter 전환 · tab 탭 · esc 숨김\nctrl-r 사용량 새로고침\n^a 추가 · ^g 기기 코드\n^d 삭제 · ^l 로그아웃'
     fi
     exit 0
     ;;
