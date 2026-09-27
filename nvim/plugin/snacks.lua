@@ -19,6 +19,13 @@ require("snacks").setup({
     },
 
     sources = {
+      explorer = {
+        layout = {
+          layout = {
+            position = "right",
+          },
+        },
+      },
       files = {
         matcher = { fuzzy = false },
       },
