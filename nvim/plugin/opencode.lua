@@ -15,7 +15,7 @@ local function get_terminal()
           return math.min(math.floor(vim.o.columns * 0.95), vim.o.columns - 2)
         end,
         height = function()
-          return math.min(math.floor(vim.o.lines * 0.95), vim.o.lines - 2 * vim.o.cmdheight - 2)
+          return math.min(math.floor(vim.o.lines * 0.9), vim.o.lines - 2 * vim.o.cmdheight - 2)
         end,
       },
     })
