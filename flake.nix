@@ -40,6 +40,10 @@
       url = "github:stablyai/homebrew-orca";
       flake = false;
     };
+    homebrew-opencode = {
+      url = "github:anomalyco/homebrew-tap";
+      flake = false;
+    };
   };
 
   outputs =
@@ -52,6 +56,7 @@
       homebrew-core,
       homebrew-cask,
       homebrew-orca,
+      homebrew-opencode,
       pyproject-nix,
       uv2nix,
       pyproject-build-systems,
@@ -156,6 +161,7 @@
               "homebrew/homebrew-core" = homebrew-core;
               "homebrew/homebrew-cask" = homebrew-cask;
               "stablyai/homebrew-orca" = homebrew-orca;
+              "anomalyco/homebrew-tap" = homebrew-opencode;
             };
 
             mutableTaps = false;
@@ -172,6 +178,7 @@
             taps = builtins.attrNames config.nix-homebrew.taps;
             brews = [
               "mas"
+              "anomalyco/tap/opencode-v2"
             ];
 
             casks = [

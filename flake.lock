@@ -69,6 +69,22 @@
         "type": "github"
       }
     },
+    "homebrew-opencode": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790380539,
+        "narHash": "sha256-OxIp1UW+iAjz7Up7qA3+/ThlLAoFD0AqKY0QsQkBf4Y=",
+        "owner": "anomalyco",
+        "repo": "homebrew-tap",
+        "rev": "e4d53ad3cba5c89dcc6141bb238b1457405fda71",
+        "type": "github"
+      },
+      "original": {
+        "owner": "anomalyco",
+        "repo": "homebrew-tap",
+        "type": "github"
+      }
+    },
     "homebrew-orca": {
       "flake": false,
       "locked": {
@@ -191,6 +207,7 @@
         "home-manager": "home-manager",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
+        "homebrew-opencode": "homebrew-opencode",
         "homebrew-orca": "homebrew-orca",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",

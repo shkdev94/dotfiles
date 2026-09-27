@@ -1,0 +1,4 @@
+interface:
+  display_name: "변경 사항 커밋"
+  short_description: "변경 사항을 검토하고 논리적 단위로 한국어 커밋 작성"
+  default_prompt: "$commit-changes로 현재 작업의 변경 사항을 확인하고 커밋해 주세요."

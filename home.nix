@@ -52,9 +52,15 @@ in
   home.file.".codex/agents".source = create_symlink "${dotfiles}/codex/agents";
 
   home.file.".agents/skills" = {
-    source = create_symlink "${dotfiles}/skills";
+    source = create_symlink "${dotfiles}/codex/skills";
     force = true;
   };
+
+  xdg.configFile."opencode/opencode.jsonc".source =
+    create_symlink "${dotfiles}/opencode/opencode.jsonc";
+  xdg.configFile."opencode/AGENTS.md".source = create_symlink "${dotfiles}/opencode/AGENTS.md";
+  xdg.configFile."opencode/agents".source = create_symlink "${dotfiles}/opencode/agents";
+  xdg.configFile."opencode/skills".source = create_symlink "${dotfiles}/opencode/skills";
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";

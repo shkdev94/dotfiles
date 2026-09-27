@@ -15,7 +15,9 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
-- `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`에 디렉터리 단위로 연결
+- `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`, `skills/`는 `~/.agents/skills/`에 연결한다.
+- `opencode/` — OpenCode V2의 `opencode.jsonc`, `AGENTS.md`, `agents/`, `skills/`를 `~/.config/opencode/` 아래에 각각 연결한다. `~/.config/opencode/` 자체는 실제 디렉터리로 두며, 서비스 설정·의존성 캐시·작업 기록 등 자동 생성 파일은 저장소 밖에 유지한다. `oc` 별칭은 `opencode --auto`를 실행하며, 커스텀 에이전트의 작업 범위는 각 에이전트의 지침으로 관리한다.
+- `codex/skills/`, `opencode/skills/` — 각 클라이언트의 독립적인 스킬 복사본. 에이전트도 클라이언트별 형식에 맞게 `codex/agents/*.toml`과 `opencode/agents/*.md`로 각각 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
@@ -67,10 +69,11 @@ npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정�
 
 ## 작업 규칙
 
-- CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
+- CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. OpenCode V2는 공식 바이너리를 사용하는 예외로 `homebrew.brews`의 `anomalyco/tap/opencode-v2`로 관리하고, tap 입력을 `flake.lock`으로 고정한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 이 예외 외에는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
 - Mac App Store 앱은 `homebrew.masApps`에 추가한다. 형식은 `이름 = App Store ID`이다.
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
 - 필요한 MCP 서버는 `codex/config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
+- OpenCode MCP는 `opencode/opencode.jsonc`의 `mcp.servers`에 직접 추가한다. Figma는 Desktop 앱에서 켠 `http://127.0.0.1:3845/mcp`에 연결한다. OpenCode 버전 갱신은 `nxu`로 Homebrew tap 입력을 갱신한 뒤 `nxr`로 적용한다. 내장 자동 업데이트나 전역 npm 설치로 덮어쓰지 않는다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
 - 머신 구성 이름은 `mbp`(`darwinConfigurations.mbp`)이다.
