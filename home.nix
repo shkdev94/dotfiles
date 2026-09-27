@@ -58,6 +58,10 @@ in
 
   xdg.configFile."opencode/opencode.jsonc".source =
     create_symlink "${dotfiles}/opencode/opencode.jsonc";
+  xdg.configFile."opencode/cli.json" = {
+    source = create_symlink "${dotfiles}/opencode/cli.json";
+    force = true;
+  };
   xdg.configFile."opencode/AGENTS.md".source = create_symlink "${dotfiles}/opencode/AGENTS.md";
   xdg.configFile."opencode/agents".source = create_symlink "${dotfiles}/opencode/agents";
   xdg.configFile."opencode/plugins/git-status".source =
