@@ -8,21 +8,6 @@ vim.api.nvim_create_autocmd("UIEnter", {
   end,
 })
 
--- Starting with a directory should open an empty buffer, not a file explorer.
-if vim.fn.argc() == 1 and vim.fn.isdirectory(vim.fn.argv(0)) == 1 then
-  vim.g.loaded_netrwPlugin = 1
-  vim.g.loaded_nvim_dir_plugin = 1
-  vim.api.nvim_create_autocmd("VimEnter", {
-    once = true,
-    callback = function()
-      local directory_buffer = vim.api.nvim_get_current_buf()
-      vim.cmd("argdelete *")
-      vim.cmd.enew()
-      vim.api.nvim_buf_delete(directory_buffer, { force = true })
-    end,
-  })
-end
-
 -- Shared plugin dependencies (init.lua runs before plugin/*.lua)
 vim.pack.add({ "https://github.com/nvim-tree/nvim-web-devicons" }) -- file icons: bufferline, lualine, diffview
 
