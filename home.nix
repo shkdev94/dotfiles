@@ -60,6 +60,8 @@ in
     create_symlink "${dotfiles}/opencode/opencode.jsonc";
   xdg.configFile."opencode/AGENTS.md".source = create_symlink "${dotfiles}/opencode/AGENTS.md";
   xdg.configFile."opencode/agents".source = create_symlink "${dotfiles}/opencode/agents";
+  xdg.configFile."opencode/plugins/git-status".source =
+    create_symlink "${dotfiles}/opencode/plugins/git-status";
   xdg.configFile."opencode/skills".source = create_symlink "${dotfiles}/opencode/skills";
 
   xdg.configFile."karabiner/karabiner.json" = {
