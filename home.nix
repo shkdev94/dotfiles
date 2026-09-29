@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  herdr,
   ...
 }:
 let
@@ -75,15 +76,20 @@ in
     create_symlink "${dotfiles}/pi/extensions/footer.ts";
   home.file.".pi/agent/extensions/editor.ts".source =
     create_symlink "${dotfiles}/pi/extensions/editor.ts";
+  # Use the exact official integration bundled with the pinned Herdr release.
+  home.file.".pi/agent/extensions/herdr-agent-state.ts".source =
+    "${herdr}/src/integration/assets/pi/herdr-agent-state.ts";
   home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
   home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
   home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
   home.file.".pi/agent/extensions/subagent/config.json".source =
     create_symlink "${dotfiles}/pi/subagents.json";
-  home.file.".pi/agent/packages".source = "${
-    pkgs.callPackage ./packages/node/pi-extensions { }
-  }/share/pi-extensions/node_modules";
+  home.file.".pi/agent/packages" = {
+    source = "${pkgs.callPackage ./packages/node/pi-extensions { }}/share/pi-extensions/node_modules";
+    # Take ownership of the generated link, including links from manual installs.
+    force = true;
+  };
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";
@@ -104,6 +110,9 @@ in
     source = create_symlink "${dotfiles}/tmux";
     force = true;
   };
+
+  xdg.configFile."herdr/config.toml".source = create_symlink "${dotfiles}/herdr/config.toml";
+  xdg.configFile."herdr/bin/workspace".source = create_symlink "${dotfiles}/herdr/bin/workspace";
 
   xdg.configFile."mise/config.toml" = {
     source = create_symlink "${dotfiles}/mise/config.toml";

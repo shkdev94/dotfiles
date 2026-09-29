@@ -6,6 +6,7 @@ bindkey '^F' autosuggest-accept
 # aliases
 alias v='nvim'
 alias tw='~/.config/tmux/bin/workspace'
+alias hw='~/.config/herdr/bin/workspace'
 alias lzg='lazygit'
 alias lzd='lazydocker'
 alias cdx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'

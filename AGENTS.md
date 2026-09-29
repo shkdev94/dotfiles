@@ -10,6 +10,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `home.nix` — 사용자 프로그램(zsh, git, vim) 설정과 `mkOutOfStoreSymlink`를 이용한 dotfile 심볼릭 링크를 관리하는 home-manager 설정
 - `nvim/` — Neovim 설정, LSP 및 플러그인 설정
 - `tmux/` — Workspace의 Git worktree·Codex 계정 탭과 tmux 설정
+- `herdr/` — 작업 디렉터리별 Herdr workspace를 여는 `hw` 명령과 터미널 설정. CLI와 Pi 공식 연동 확장은 같은 Herdr flake 입력으로 고정하고, 실행 상태는 저장소 밖에 유지한다.
 - `zshrc` — home-manager의 `initContent`로 불러오는 Zsh 설정. 별칭, 환경 변수, mise 활성화 설정 포함
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
@@ -76,6 +77,7 @@ npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정�
 - 필요한 MCP 서버는 `codex/config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
 - OpenCode MCP는 `opencode/opencode.jsonc`의 `mcp.servers`에 직접 추가한다. Figma는 Desktop 앱에서 켠 `http://127.0.0.1:3845/mcp`에 연결한다. OpenCode 버전 갱신은 `nxu`로 Homebrew tap 입력을 갱신한 뒤 `nxr`로 적용한다. 내장 자동 업데이트나 전역 npm 설치로 덮어쓰지 않는다.
 - Pi MCP는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 CLI를 덮어쓰지 않는다. 확장은 `packages/node/pi-extensions/package.json`의 버전을 수정한 뒤 같은 폴더에서 `npm install --package-lock-only --legacy-peer-deps --ignore-scripts --no-audit --no-fund`로 잠금을 갱신하고 `nix build .#pi`로 검증한다. 확장의 peer SDK는 Nix Pi CLI와 공유한다.
+- Herdr는 `flake.nix`의 공식 Herdr 입력으로 CLI와 Pi 연동 확장을 함께 관리한다. 릴리스 태그 변경 후 `nix flake update herdr`, `nix build .#herdr`로 검증하고 `nxr`로 적용한다. `herdr update`나 `herdr integration install pi`로 관리 중인 파일을 덮어쓰지 않는다. 설정 파일과 실행 스크립트만 home-manager로 연결하며 workspace 기록·소켓·로그는 저장소 밖에 유지한다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
 - 머신 구성 이름은 `mbp`(`darwinConfigurations.mbp`)이다.
