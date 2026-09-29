@@ -1,0 +1,4 @@
+interface:
+  display_name: "BDD 시나리오 작성"
+  short_description: "요구사항과 업무 규칙을 근거로 한국어 Given–When–Then 시나리오 작성"
+  default_prompt: "$write-bdd-scenarios로 제공된 요구사항을 확인하고 업무 규칙과 주요 예외를 BDD 시나리오로 작성해 주세요."

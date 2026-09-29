@@ -68,6 +68,23 @@ in
     create_symlink "${dotfiles}/opencode/plugins/git-status";
   xdg.configFile."opencode/skills".source = create_symlink "${dotfiles}/opencode/skills";
 
+  home.file.".pi/agent/settings.json".source = create_symlink "${dotfiles}/pi/settings.json";
+  home.file.".pi/agent/models.json".source = create_symlink "${dotfiles}/pi/models.json";
+  home.file.".pi/agent/web-search.json".source = create_symlink "${dotfiles}/pi/web-search.json";
+  home.file.".pi/agent/extensions/footer.ts".source =
+    create_symlink "${dotfiles}/pi/extensions/footer.ts";
+  home.file.".pi/agent/extensions/editor.ts".source =
+    create_symlink "${dotfiles}/pi/extensions/editor.ts";
+  home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
+  home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
+  home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
+  home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
+  home.file.".pi/agent/extensions/subagent/config.json".source =
+    create_symlink "${dotfiles}/pi/subagents.json";
+  home.file.".pi/agent/packages".source = "${
+    pkgs.callPackage ./packages/node/pi-extensions { }
+  }/share/pi-extensions/node_modules";
+
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";
     force = true;

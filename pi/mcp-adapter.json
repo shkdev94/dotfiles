@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "figma-remote": {
+      "url": "https://mcp.figma.com/mcp",
+      "auth": "oauth",
+      "oauth": {
+        "clientName": "Codex"
+      }
+    },
+    "browser-use": {
+      "command": "/run/current-system/sw/bin/browser-use",
+      "args": ["--mcp"]
+    }
+  },
+  "settings": {
+    "showStatusIcon": false
+  }
+}

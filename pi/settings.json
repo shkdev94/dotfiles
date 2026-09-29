@@ -1,0 +1,19 @@
+{
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-6-sol",
+  "defaultThinkingLevel": "xhigh",
+  "shellPath": "/bin/zsh",
+  "enableInstallTelemetry": false,
+  "editorPaddingX": 1,
+  "skills": [
+    "!**/.agents/skills/**"
+  ],
+  "packages": [
+    "./packages/pi-subagents",
+    "./packages/@narumitw/pi-accounts",
+    "./packages/pi-mcp-adapter",
+    "./packages/pi-web-access"
+  ],
+  "lastChangelogVersion": "0.86.1",
+  "theme": "dark"
+}

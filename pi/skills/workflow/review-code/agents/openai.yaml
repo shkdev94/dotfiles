@@ -1,0 +1,4 @@
+interface:
+  display_name: "코드 리뷰"
+  short_description: "관련 이슈·링크·이미지와 코드를 확인해 증거에 기반한 한국어 리뷰"
+  default_prompt: "$review-code로 변경 사항과 제공된 관련 자료를 확인하고, 근거가 있는 문제를 한국어로 리뷰해 주세요."

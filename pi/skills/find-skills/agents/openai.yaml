@@ -1,0 +1,4 @@
+interface:
+  display_name: "스킬 탐색과 도입"
+  short_description: "필요한 스킬의 원본과 기존 기능을 비교해 탐색하고 요청 범위에서 도입"
+  default_prompt: "$find-skills로 이 작업에 적합한 스킬을 찾아 기존 스킬과 비교해 주세요."

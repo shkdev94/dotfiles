@@ -1,0 +1,11 @@
+{
+  "name": "dotfiles-pi-extensions",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@narumitw/pi-accounts": "0.52.2",
+    "pi-mcp-adapter": "3.0.0",
+    "pi-subagents": "0.72.1",
+    "pi-web-access": "0.32.0"
+  }
+}

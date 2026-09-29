@@ -1,0 +1,4 @@
+interface:
+  display_name: "근거 기반 작업"
+  short_description: "주장에 맞는 근거를 확인하고 충돌·부족을 대화형 환경과 CI에서 처리"
+  default_prompt: "$work-with-evidence로 관련 근거를 확인하며 작업하고, 사실·추론·미확정 사항과 검증 한계를 구분해 주세요."

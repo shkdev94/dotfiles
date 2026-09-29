@@ -1,0 +1,4 @@
+interface:
+  display_name: "이슈 구현"
+  short_description: "작업 이슈의 요구사항을 구현·검증하고 요청한 범위까지 전달"
+  default_prompt: "$implement-issue로 지정한 이슈를 구현·검증하고 PR까지 작성해 주세요."

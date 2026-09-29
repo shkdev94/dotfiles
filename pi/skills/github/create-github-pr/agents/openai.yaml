@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR 작성"
+  short_description: "구현 초기의 PR 구성부터 GitHub PR과 stacked PR 생성·갱신"
+  default_prompt: "$create-github-pr로 작업 규모와 의존성에 맞게 GitHub PR을 구성하고 작성해 주세요."

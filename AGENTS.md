@@ -17,7 +17,8 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
 - `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`, `skills/`는 `~/.agents/skills/`에 연결한다.
 - `opencode/` — OpenCode V2의 `opencode.jsonc`, `AGENTS.md`, `agents/`, `skills/`를 `~/.config/opencode/` 아래에 각각 연결한다. `~/.config/opencode/` 자체는 실제 디렉터리로 두며, 서비스 설정·의존성 캐시·작업 기록 등 자동 생성 파일은 저장소 밖에 유지한다. `oc` 별칭은 `opencode --auto`를 실행하며, 커스텀 에이전트의 작업 범위는 각 에이전트의 지침으로 관리한다.
-- `codex/skills/`, `opencode/skills/` — 각 클라이언트의 독립적인 스킬 복사본. 에이전트도 클라이언트별 형식에 맞게 `codex/agents/*.toml`과 `opencode/agents/*.md`로 각각 관리한다.
+- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `extensions/`의 UI 확장, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. OpenCode에서 포팅한 에이전트·스킬은 독립적인 복사본이며, Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
+- `codex/skills/`, `opencode/skills/`, `pi/skills/` — 각 클라이언트의 독립적인 스킬 복사본. 에이전트도 클라이언트별 형식에 맞게 `codex/agents/*.toml`, `opencode/agents/*.md`, `pi/agents/*.md`로 각각 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
@@ -74,6 +75,7 @@ npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정�
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
 - 필요한 MCP 서버는 `codex/config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
 - OpenCode MCP는 `opencode/opencode.jsonc`의 `mcp.servers`에 직접 추가한다. Figma는 Desktop 앱에서 켠 `http://127.0.0.1:3845/mcp`에 연결한다. OpenCode 버전 갱신은 `nxu`로 Homebrew tap 입력을 갱신한 뒤 `nxr`로 적용한다. 내장 자동 업데이트나 전역 npm 설치로 덮어쓰지 않는다.
+- Pi MCP는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 CLI를 덮어쓰지 않는다. 확장은 `packages/node/pi-extensions/package.json`의 버전을 수정한 뒤 같은 폴더에서 `npm install --package-lock-only --legacy-peer-deps --ignore-scripts --no-audit --no-fund`로 잠금을 갱신하고 `nix build .#pi`로 검증한다. 확장의 peer SDK는 Nix Pi CLI와 공유한다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
 - 머신 구성 이름은 `mbp`(`darwinConfigurations.mbp`)이다.

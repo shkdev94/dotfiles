@@ -1,0 +1,4 @@
+interface:
+  display_name: "좋은 React 코드 작성"
+  short_description: "React 컴포넌트 합성·상태·데이터 경계를 정리하고 성능을 검증"
+  default_prompt: "$write-good-react로 이 React 코드의 요구사항을 구현하고 구조와 성능을 확인해 주세요."

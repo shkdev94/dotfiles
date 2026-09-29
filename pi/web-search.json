@@ -1,0 +1,7 @@
+{
+  "searchRouting": {
+    "providers": ["openai"],
+    "useCurrentModel": true,
+    "fallbackOn": ["unsupported"]
+  }
+}

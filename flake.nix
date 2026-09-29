@@ -73,6 +73,15 @@
             ;
         };
       codexAuth = pkgs: pkgs.callPackage ./packages/node/codex-auth { };
+      piAgent =
+        pkgs:
+        pkgs.symlinkJoin {
+          name = "pi-coding-agent-${pkgs.pi-coding-agent.version}";
+          paths = [
+            pkgs.pi-coding-agent
+            (pkgs.callPackage ./packages/node/pi-extensions { })
+          ];
+        };
       configuration =
         { pkgs, config, ... }:
         {
@@ -99,6 +108,7 @@
             uv
             (browserUse pkgs)
             (codexAuth pkgs)
+            (piAgent pkgs)
             awscli2
             gh
             pigz
@@ -207,6 +217,7 @@
     {
       packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
       packages.aarch64-darwin.codex-auth = codexAuth nixpkgs.legacyPackages.aarch64-darwin;
+      packages.aarch64-darwin.pi = piAgent nixpkgs.legacyPackages.aarch64-darwin;
 
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {
         modules = [
