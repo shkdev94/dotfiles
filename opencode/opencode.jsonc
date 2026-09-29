@@ -3,6 +3,9 @@
   "model": "openai/gpt-6-sol",
   "default_agent": "build",
   "shell": "/bin/zsh",
+  "plugins": [
+    "/Users/sanghyeon/.dotfiles/opencode/plugins/openai-web-search"
+  ],
   // Homebrew owns the executable; its tap is pinned by flake.lock.
   "update": "disable",
   "providers": {
