@@ -27,10 +27,6 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    herdr = {
-      url = "github:herdrdev/herdr/v0.9.2";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-core = {
       url = "github:homebrew/homebrew-core";
@@ -44,10 +40,6 @@
       url = "github:stablyai/homebrew-orca";
       flake = false;
     };
-    homebrew-opencode = {
-      url = "github:anomalyco/homebrew-tap";
-      flake = false;
-    };
   };
 
   outputs =
@@ -56,18 +48,15 @@
       nix-darwin,
       nixpkgs,
       home-manager,
-      herdr,
       nix-homebrew,
       homebrew-core,
       homebrew-cask,
       homebrew-orca,
-      homebrew-opencode,
       pyproject-nix,
       uv2nix,
       pyproject-build-systems,
     }:
     let
-      herdrPackage = herdr.packages.aarch64-darwin.default;
       browserUse =
         pkgs:
         import ./packages/python/browser-use {
@@ -115,7 +104,6 @@
             (browserUse pkgs)
             (codexAuth pkgs)
             (piAgent pkgs)
-            herdrPackage
             awscli2
             gh
             pigz
@@ -178,7 +166,6 @@
               "homebrew/homebrew-core" = homebrew-core;
               "homebrew/homebrew-cask" = homebrew-cask;
               "stablyai/homebrew-orca" = homebrew-orca;
-              "anomalyco/homebrew-tap" = homebrew-opencode;
             };
 
             mutableTaps = false;
@@ -195,7 +182,6 @@
             taps = builtins.attrNames config.nix-homebrew.taps;
             brews = [
               "mas"
-              "anomalyco/tap/opencode-v2"
             ];
 
             casks = [
@@ -225,7 +211,6 @@
       packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
       packages.aarch64-darwin.codex-auth = codexAuth nixpkgs.legacyPackages.aarch64-darwin;
       packages.aarch64-darwin.pi = piAgent nixpkgs.legacyPackages.aarch64-darwin;
-      packages.aarch64-darwin.herdr = herdrPackage;
 
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {
         modules = [
@@ -237,7 +222,6 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.backupFileExtension = "bak";
-            home-manager.extraSpecialArgs = { inherit herdr; };
             home-manager.users.sanghyeon = import ./home.nix;
           }
         ];

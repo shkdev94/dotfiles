@@ -4,7 +4,7 @@ disable-model-invocation: true
 
 # 스킬 작성 컨벤션
 
-이 지침은 `pi/skills/` 아래 스킬을 추가하거나 수정할 때 적용한다. Codex용 `codex/skills/`와 OpenCode용 `opencode/skills/`는 별도의 복사본이다.
+이 지침은 `pi/skills/` 아래 스킬을 추가하거나 수정할 때 적용한다. Codex용 `codex/skills/`는 별도의 복사본이다.
 
 ## 구성과 표현
 

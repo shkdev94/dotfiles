@@ -1,10 +1,23 @@
 # Pi 설정
 
-OpenCode의 에이전트 4개와 스킬 32개를 Pi용으로 포팅한 독립적인 복사본이다. 원본 OpenCode 설정은 그대로 유지한다.
+Pi 에이전트 4개와 스킬 32개를 관리한다.
 
 Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하고, 확장은 `packages/node/pi-extensions/package-lock.json`으로 고정한다. `nix build .#pi`로 빌드하고 `nxr`로 적용한다. `pi` 명령으로 실행한다.
 
 초기 셋업에서는 sudo 없이 실행할 수 있도록 Nix 사용자 프로필에 Pi를 설치하고 아래 home-manager 설정과 같은 경로로 연결했다. 새 파일이 Git 추적에 포함되기 전에는 `nix build path:.#pi`로 빌드하고, 시스템 전체 적용은 `sudo darwin-rebuild switch --flake "path:$HOME/.dotfiles#mbp"`를 사용한다. 이후 시스템 적용이 완료되면 사용자 프로필의 중복 설치는 `nix profile remove pi`로 제거할 수 있다.
+
+## Neovim 통합
+
+`nvim/plugin/pi.lua`가 작업 디렉터리마다 Pi 세션 목록을 관리한다. 왼쪽 사이드바는 Neovim 버퍼이고 오른쪽은 선택한 세션의 Pi TUI 터미널 버퍼다. float를 숨기거나 다른 세션을 선택해도 각 Pi 프로세스는 계속 실행된다. Neovim을 종료한 뒤에는 Pi의 세션 파일로 대화를 복원한다.
+
+- `<leader>pt` 또는 `:Pi`: float 열기·숨기기
+- `<leader>pn` 또는 `:PiNew`: 새 세션
+- `<leader>ps`: 세션 사이드바로 이동
+- `<leader>pa` 또는 `:PiAsk`: 현재 위치나 선택 영역을 질문과 함께 Pi로 전송. Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
+- 사이드바에서 `1`–`9`·`Enter`: 세션 선택, `n`: 새 세션, `[`·`]`: 페이지 이동, `q`: 숨기기
+- Pi 터미널에서 `<C-\>s`: 사이드바로 이동, `<C-\>q`: float 숨기기
+
+`extensions/nvim.ts`가 Neovim의 로컬 소켓으로 질문과 작업 상태를 주고받는다. 소켓과 플러그인 세션 목록은 `stdpath("state")/pi/`에, 대화는 Pi의 기본 세션 디렉터리에 저장된다. home-manager 적용 전에는 플러그인이 저장소의 `nvim.ts`를 Pi에 직접 넘긴다.
 
 ## 모델과 계정
 
@@ -13,7 +26,7 @@ Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하
 - reviewer·issue_writer: `openai-codex/gpt-6-astra`.
 - Pi의 기본 Codex 구독 로그인을 사용하므로 모델 인증용 확장은 별도로 필요하지 않다.
 
-고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가했다. Sol·Astra의 컨텍스트 예산은 기존 OpenCode 설정과 같은 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
+고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가했다. Sol·Astra의 컨텍스트 예산은 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
 
 Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이름을 붙인다. 다른 계정도 같은 메뉴에서 추가한다. **Switch … account**로 현재 세션의 계정을 전환하고, **Set default account**로 새 세션의 기본 계정을 선택한다. 기존 세션은 자신의 계정 선택을 유지한다. 기본 Pi 로그인은 `/login`에서도 가능하다.
 

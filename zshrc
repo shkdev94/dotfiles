@@ -6,11 +6,9 @@ bindkey '^F' autosuggest-accept
 # aliases
 alias v='nvim'
 alias tw='~/.config/tmux/bin/workspace'
-alias hw='~/.config/herdr/bin/workspace'
 alias lzg='lazygit'
 alias lzd='lazydocker'
 alias cdx='codex --dangerously-bypass-approvals-and-sandbox --profile dev'
-alias oc='opencode --auto'
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
 alias nxu="nix flake update --flake ~/.dotfiles"
 

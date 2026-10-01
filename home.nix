@@ -2,7 +2,6 @@
   config,
   pkgs,
   lib,
-  herdr,
   ...
 }:
 let
@@ -57,18 +56,6 @@ in
     force = true;
   };
 
-  xdg.configFile."opencode/opencode.jsonc".source =
-    create_symlink "${dotfiles}/opencode/opencode.jsonc";
-  xdg.configFile."opencode/cli.json" = {
-    source = create_symlink "${dotfiles}/opencode/cli.json";
-    force = true;
-  };
-  xdg.configFile."opencode/AGENTS.md".source = create_symlink "${dotfiles}/opencode/AGENTS.md";
-  xdg.configFile."opencode/agents".source = create_symlink "${dotfiles}/opencode/agents";
-  xdg.configFile."opencode/plugins/git-status".source =
-    create_symlink "${dotfiles}/opencode/plugins/git-status";
-  xdg.configFile."opencode/skills".source = create_symlink "${dotfiles}/opencode/skills";
-
   home.file.".pi/agent/settings.json".source = create_symlink "${dotfiles}/pi/settings.json";
   home.file.".pi/agent/models.json".source = create_symlink "${dotfiles}/pi/models.json";
   home.file.".pi/agent/web-search.json".source = create_symlink "${dotfiles}/pi/web-search.json";
@@ -76,9 +63,8 @@ in
     create_symlink "${dotfiles}/pi/extensions/footer.ts";
   home.file.".pi/agent/extensions/editor.ts".source =
     create_symlink "${dotfiles}/pi/extensions/editor.ts";
-  # Use the exact official integration bundled with the pinned Herdr release.
-  home.file.".pi/agent/extensions/herdr-agent-state.ts".source =
-    "${herdr}/src/integration/assets/pi/herdr-agent-state.ts";
+  home.file.".pi/agent/extensions/nvim.ts".source =
+    create_symlink "${dotfiles}/pi/extensions/nvim.ts";
   home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
   home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
@@ -110,9 +96,6 @@ in
     source = create_symlink "${dotfiles}/tmux";
     force = true;
   };
-
-  xdg.configFile."herdr/config.toml".source = create_symlink "${dotfiles}/herdr/config.toml";
-  xdg.configFile."herdr/bin/workspace".source = create_symlink "${dotfiles}/herdr/bin/workspace";
 
   xdg.configFile."mise/config.toml" = {
     source = create_symlink "${dotfiles}/mise/config.toml";

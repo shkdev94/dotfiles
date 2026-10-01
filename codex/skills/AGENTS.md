@@ -1,6 +1,6 @@
 # 스킬 작성 컨벤션
 
-이 지침은 `codex/skills/` 아래 스킬을 추가하거나 수정할 때 적용한다. OpenCode용 `opencode/skills/`는 별도의 복사본이다.
+이 지침은 `codex/skills/` 아래 스킬을 추가하거나 수정할 때 적용한다. Pi용 `pi/skills/`는 별도의 복사본이다.
 
 ## 구성과 표현
 
