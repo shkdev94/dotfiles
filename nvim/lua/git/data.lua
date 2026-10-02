@@ -89,7 +89,7 @@ function M.refs(root, callback)
         elseif parts[1]:find("^refs/tags/") then
           kind, name = "Tags", parts[1]:sub(11)
         end
-        if kind then
+        if kind and not (kind == "Remote branches" and name:match("/HEAD$")) then
           refs[#refs + 1] = {
             kind = kind,
             name = name,
@@ -261,6 +261,30 @@ end
 
 function M.commit_message(root, commit, callback)
   M.run(root, { "show", "-s", "--format=%B", commit.id }, callback)
+end
+
+function M.containing_branches(root, commit_id, callback)
+  M.run(root, {
+    "for-each-ref",
+    "--contains=" .. commit_id,
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes",
+  }, function(error_message, output)
+    if error_message then
+      callback(error_message)
+      return
+    end
+    local branches = {}
+    for _, reference in ipairs(vim.split(vim.trim(output), "\n", { plain = true })) do
+      if reference:find("^refs/heads/") then
+        branches[#branches + 1] = reference:sub(12)
+      elseif reference:find("^refs/remotes/") and not reference:match("/HEAD$") then
+        branches[#branches + 1] = reference:sub(14)
+      end
+    end
+    callback(nil, branches)
+  end)
 end
 
 function M.content(root, revision, path, callback)

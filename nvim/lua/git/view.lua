@@ -1,10 +1,10 @@
 local data = require("git.data")
 local graph = require("git.graph")
-local image = require("git.image")
 
 local M = {}
 local current
 local window_options
+local graph_namespace = vim.api.nvim_create_namespace("git.lua.graph")
 
 local function buffer()
   local result = vim.api.nvim_create_buf(false, true)
@@ -134,10 +134,33 @@ local function common_maps(state, target)
   end, "Refresh Git view")
 end
 
-local function close_image(state)
-  if state.graph_image then
-    state.graph_image:close()
-    state.graph_image = nil
+local function style_details(target, content, color)
+  vim.api.nvim_buf_clear_namespace(target, graph_namespace, 0, -1)
+  if color then
+    vim.api.nvim_buf_set_extmark(target, graph_namespace, 0, 0, {
+      line_hl_group = graph.row_highlight_group(color),
+      priority = 10,
+    })
+  end
+  for index, line in ipairs(content) do
+    if line:find("^ Message$") or line:find("^ Changed files") or line:match("^ %u+ %(") then
+      vim.api.nvim_buf_add_highlight(target, graph_namespace, "Title", index - 1, 1, #line)
+    elseif line:find("^ Branches") and color then
+      vim.api.nvim_buf_add_highlight(
+        target,
+        graph_namespace,
+        graph.highlight_group(color),
+        index - 1,
+        1,
+        9
+      )
+    elseif line:match("^  [AMDRCU%?]  ") then
+      local status = line:sub(3, 3)
+      local group = (status == "A" or status == "?") and "DiffAdd"
+        or status == "D" and "DiffDelete"
+        or "DiffChange"
+      vim.api.nvim_buf_add_highlight(target, graph_namespace, group, index - 1, 2, 3)
+    end
   end
 end
 
@@ -179,6 +202,7 @@ local function show_status(state)
     output[#output + 1] = "  Clean working tree"
   end
   lines(state.detail_buffer, output)
+  style_details(state.detail_buffer, output)
 end
 
 local function show_commit(state, commit)
@@ -190,13 +214,20 @@ local function show_commit(state, commit)
   local request = state.detail_request
   state.detail_files = {}
   state.detail_lines = {}
-  lines(state.detail_buffer, {
+  state.branch_cache = state.branch_cache or {}
+  local branches = state.branch_cache[commit.id]
+  local branch_error
+  local color = state.commit_colors and state.commit_colors[commit.id]
+  local loading = {
     " Commit " .. commit.id:sub(1, 12),
-    " " .. (commit.author or ""),
-    " " .. (commit.date or ""),
+    " Author: " .. (commit.author or ""),
+    " Date: " .. (commit.date or ""),
     "",
+    " Message",
     " Loading details…",
-  })
+  }
+  lines(state.detail_buffer, loading)
+  style_details(state.detail_buffer, loading, color)
 
   local message, files
   local function render()
@@ -210,7 +241,13 @@ local function show_commit(state, commit)
       " Commit " .. commit.id,
       " Author: " .. (commit.author or ""),
       " Date: " .. (commit.date or ""),
+      branch_error and " Branches: unavailable" or branches and string.format(
+        " Branches (%d): %s",
+        #branches,
+        #branches > 0 and table.concat(branches, ", ") or "none"
+      ) or " Branches: loading…",
       "",
+      " Message",
     }
     for _, line in ipairs(vim.split(vim.trim(message), "\n", { plain = true })) do
       output[#output + 1] = " " .. line
@@ -227,6 +264,7 @@ local function show_commit(state, commit)
       output[#output + 1] = "  No file changes"
     end
     lines(state.detail_buffer, output)
+    style_details(state.detail_buffer, output, color)
   end
 
   data.commit_message(state.root, commit, function(error_message, result)
@@ -240,29 +278,69 @@ local function show_commit(state, commit)
     end
     render()
   end)
+  if not branches then
+    vim.defer_fn(function()
+      if not valid(state) or state.page ~= "main" or state.detail_request ~= request then
+        return
+      end
+      data.containing_branches(state.root, commit.id, function(error_message, result)
+        if not valid(state) or state.detail_request ~= request then
+          return
+        end
+        branch_error = error_message
+        branches = error_message and {} or result
+        if not error_message then
+          state.branch_cache[commit.id] = branches
+        end
+        render()
+      end)
+    end, 180)
+  end
 end
 
 local function decorate(state)
   local references = {}
   for _, reference in ipairs(state.refs or {}) do
-    references[reference.id] = references[reference.id] or {}
-    table.insert(references[reference.id], reference.name)
+    if not (reference.kind == "Remote branches" and reference.name:match("/HEAD$")) then
+      references[reference.id] = references[reference.id] or {}
+      table.insert(references[reference.id], reference)
+    end
+  end
+  local priority = { ["Local branches"] = 1, Tags = 2, ["Remote branches"] = 3 }
+  for _, items in pairs(references) do
+    table.sort(items, function(left, right)
+      local left_priority = priority[left.kind] or 4
+      local right_priority = priority[right.kind] or 4
+      return left_priority == right_priority and left.name < right.name
+        or left_priority < right_priority
+    end)
   end
   return references
+end
+
+local function ref_summary(references)
+  if not references or #references == 0 then
+    return nil
+  end
+  local label = references[1].name
+  if #references > 1 then
+    label = label .. " +" .. (#references - 1)
+  end
+  return label
 end
 
 local function render_history(state)
   if not valid(state) or state.page ~= "main" or not state.center_buffer then
     return
   end
-  close_image(state)
   local width = vim.api.nvim_win_get_width(state.center_window)
   local result = {}
+  local graph_spans = {}
+  local row_colors = {}
+  local label_spans = {}
   state.history_lines = {}
+  state.load_more_line = nil
   local references = decorate(state)
-  local can_image = not state.image_failed
-    and vim.fn.executable("resvg") == 1
-    and Snacks.image.supports_terminal()
 
   if state.mode == "reflog" then
     for index, entry in ipairs(state.reflog or {}) do
@@ -279,73 +357,92 @@ local function render_history(state)
     end
   else
     state.layout = graph.layout(state.commits or {})
-    local graph_width =
-      math.max(6, math.min(22, state.layout.lanes * 3 + 2, math.floor(width * 0.42)))
-    state.graph_width = graph_width
-    for index, row in ipairs(state.layout.rows) do
-      local commit = row.commit
-      local names = references[commit.id]
-      local suffix = names and ("  [" .. table.concat(names, ", ") .. "]") or ""
-      local graph_text = can_image and string.rep(" ", graph_width)
-        or graph.text_row(row, graph_width)
-      local subject = width >= 72 and suffix ~= "" and (suffix .. " " .. commit.subject)
-        or commit.subject
-      if width >= 72 then
-        local subject_width = math.max(8, width - graph_width - 35)
-        result[index] = string.format(
-          "%s %s  %s  %s  %s",
-          graph_text,
-          commit.id:sub(1, 7),
-          padded(commit.author, 12),
-          commit.date:sub(1, 10),
-          short(subject, subject_width)
-        )
-      else
-        result[index] = string.format(
-          "%s %s  %s",
-          graph_text,
-          commit.id:sub(1, 7),
-          short(subject, math.max(8, width - graph_width - 12))
-        )
+    state.commit_colors = {}
+    local label_width = width >= 80 and math.min(22, math.floor(width * 0.22)) or 0
+    local graph_width = math.max(
+      6,
+      math.min(34, state.layout.lanes * 3 + 2, math.floor((width - label_width) * 0.45))
+    )
+    local content_width = math.max(1, width - label_width - graph_width - 2)
+
+    local function append(graph_text, spans, content, commit, color, label)
+      local line = #result + 1
+      local prefix = string.rep(" ", label_width)
+      if label and label_width > 0 then
+        local text = short(label, label_width - 2)
+        prefix = " " .. padded(text, label_width - 1)
+        label_spans[line] = { start = 1, finish = 1 + #text, color = color }
       end
-      state.history_lines[index] = commit
+      result[line] = prefix .. graph_text .. "  " .. short(content, content_width)
+      graph_spans[line] = { offset = #prefix, spans = spans }
+      row_colors[line] = color
+      state.history_lines[line] = commit
     end
-    if #result == state.max_commits then
-      result[#result + 1] = " + Load more commits"
+
+    for _, row in ipairs(state.layout.rows) do
+      local commit = row.commit
+      local label = ref_summary(references[commit.id])
+      state.commit_colors[commit.id] = row.color
+      local metadata = commit.id:sub(1, 7)
+      if width >= 72 then
+        metadata = metadata .. "  " .. padded(commit.author, 12) .. "  " .. commit.date:sub(1, 10)
+      elseif width >= 55 then
+        metadata = metadata .. "  " .. commit.date:sub(1, 10)
+      end
+      if label and label_width == 0 then
+        metadata = metadata .. "  [" .. label .. "]"
+      end
+
+      local commit_text, commit_spans = graph.commit_line(row, graph_width)
+      append(commit_text, commit_spans, metadata, commit, row.color, label)
+      local connector_text, connector_spans = graph.connector_line(row, graph_width)
+      append(connector_text, connector_spans, commit.subject, commit, row.color)
+    end
+    if #(state.commits or {}) == state.max_commits then
+      state.load_more_line = #result + 1
+      result[state.load_more_line] = " + Load more commits"
     end
     if #result == 0 then
       result[1] = " No commits"
     end
   end
   lines(state.center_buffer, result)
+  vim.api.nvim_buf_clear_namespace(state.center_buffer, graph_namespace, 0, -1)
+  for line, color in pairs(row_colors) do
+    vim.api.nvim_buf_set_extmark(state.center_buffer, graph_namespace, line - 1, 0, {
+      line_hl_group = graph.row_highlight_group(color),
+      priority = 10,
+    })
+  end
+  for line, label in pairs(label_spans) do
+    vim.api.nvim_buf_add_highlight(
+      state.center_buffer,
+      graph_namespace,
+      graph.ref_highlight_group(label.color),
+      line - 1,
+      label.start,
+      label.finish
+    )
+  end
+  for line, graph_line in pairs(graph_spans) do
+    for _, span in ipairs(graph_line.spans) do
+      vim.api.nvim_buf_add_highlight(
+        state.center_buffer,
+        graph_namespace,
+        graph.highlight_group(span.color),
+        line - 1,
+        graph_line.offset + span.start,
+        graph_line.offset + span.finish
+      )
+    end
+  end
   vim.wo[state.center_window].winbar = state.mode == "reflog"
       and " Reflog · C: commits · Enter: select"
     or (
-      " Commits"
+      (width >= 80 and " Branch / Tag │ Graph │ Commit" or " Git graph")
       .. (state.reference and (" · " .. state.reference:gsub("^refs/", "")) or "")
       .. " · R: reflog · +: more · Enter: select"
     )
-
-  if state.mode == "commits" and #state.layout.rows > 0 and can_image then
-    state.graph_image = image.new(
-      state.center_buffer,
-      state.center_window,
-      state.layout,
-      state.graph_width,
-      function(error_message)
-        if not valid(state) then
-          return
-        end
-        state.image_failed = true
-        close_image(state)
-        vim.notify("git.lua graph: " .. error_message, vim.log.levels.WARN)
-        render_history(state)
-      end
-    )
-    if state.graph_image then
-      state.graph_image:visible()
-    end
-  end
 end
 
 local function render_sidebar(state)
@@ -358,27 +455,49 @@ local function render_sidebar(state)
     " " .. short(state.root, sidebar_width - 2),
     "",
   }
+  local headings = { 1 }
+  local ref_spans = {}
   state.sidebar_lines = {}
   local sections = {
-    { title = "Local branches", items = state.refs or {}, kind = "Local branches" },
-    { title = "Remote branches", items = state.refs or {}, kind = "Remote branches" },
-    { title = "Tags", items = state.refs or {}, kind = "Tags" },
-    { title = "Worktrees", items = state.worktrees or {} },
-    { title = "Submodules", items = state.submodules or {} },
+    {
+      title = "Local branches",
+      short_title = "Local",
+      items = state.refs or {},
+      kind = "Local branches",
+    },
+    {
+      title = "Remote branches",
+      short_title = "Remote",
+      items = state.refs or {},
+      kind = "Remote branches",
+    },
+    { title = "Tags", short_title = "Tags", items = state.refs or {}, kind = "Tags" },
+    { title = "Worktrees", short_title = "Worktrees", items = state.worktrees or {} },
+    { title = "Submodules", short_title = "Submodules", items = state.submodules or {} },
   }
   for _, section in ipairs(sections) do
-    output[#output + 1] = " " .. section.title
     local count = 0
     for _, item in ipairs(section.items) do
       if not section.kind or item.kind == section.kind then
         count = count + 1
+      end
+    end
+    local title = sidebar_width >= 24 and section.title or section.short_title
+    output[#output + 1] = string.format(" %s (%d)", title, count)
+    headings[#headings + 1] = #output
+    for _, item in ipairs(section.items) do
+      if not section.kind or item.kind == section.kind then
         local name = item.name or item.path
         if section.title == "Worktrees" then
           name = (item.branch or "detached") .. " · " .. vim.fs.basename(item.path)
         elseif section.title == "Submodules" then
           name = item.path .. " " .. (item.id or ""):sub(1, 7)
         end
-        local marker = item.kind == "Local branches" and item.name == state.head and "●" or " "
+        local color = state.commit_colors and state.commit_colors[item.id]
+        local marker = item.kind and "●" or " "
+        if item.kind == "Local branches" and item.name == state.head then
+          marker = "◆"
+        end
         if section.title == "Worktrees" and item.path == state.root then
           marker = "●"
         elseif section.title == "Submodules" then
@@ -386,6 +505,9 @@ local function render_sidebar(state)
         end
         output[#output + 1] = " " .. marker .. " " .. short(name or item.path, sidebar_width - 4)
         state.sidebar_lines[#output] = item
+        if color then
+          ref_spans[#ref_spans + 1] = { line = #output, finish = #output[#output], color = color }
+        end
       end
     end
     if count == 0 then
@@ -394,6 +516,27 @@ local function render_sidebar(state)
     output[#output + 1] = ""
   end
   lines(state.sidebar_buffer, output)
+  vim.api.nvim_buf_clear_namespace(state.sidebar_buffer, graph_namespace, 0, -1)
+  for _, line in ipairs(headings) do
+    vim.api.nvim_buf_add_highlight(
+      state.sidebar_buffer,
+      graph_namespace,
+      "Title",
+      line - 1,
+      1,
+      #output[line]
+    )
+  end
+  for _, span in ipairs(ref_spans) do
+    vim.api.nvim_buf_add_highlight(
+      state.sidebar_buffer,
+      graph_namespace,
+      graph.ref_highlight_group(span.color),
+      span.line - 1,
+      1,
+      span.finish
+    )
+  end
 end
 
 local function select_history(state)
@@ -464,7 +607,7 @@ local function main_maps(state)
   end, "Show all refs")
   map(state.center_buffer, "<CR>", function()
     local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
-    if state.mode == "commits" and line > #(state.commits or {}) then
+    if state.mode == "commits" and line == state.load_more_line then
       state.max_commits = state.max_commits + 300
       M.refresh(state)
     else
@@ -608,7 +751,6 @@ function M.open_diff(state, file_index)
   if not valid(state) or not state.detail_files[file_index] then
     return
   end
-  close_image(state)
   state.history_cursor = vim.api.nvim_win_get_cursor(state.center_window)[1]
   close_windows(state)
   state.page = "diff"
@@ -691,14 +833,15 @@ function M.refresh(state)
     update(function(commits)
       state.commits = commits
       render_history(state)
+      render_sidebar(state)
     end)
   )
   data.refs(
     state.root,
     update(function(refs)
       state.refs = refs
-      render_sidebar(state)
       render_history(state)
+      render_sidebar(state)
     end)
   )
   data.status(
@@ -750,7 +893,6 @@ function M.close(state)
   if current ~= state then
     return
   end
-  close_image(state)
   current = nil
   vim.api.nvim_del_augroup_by_id(state.augroup)
   close_windows(state)
@@ -791,14 +933,6 @@ function M.open()
   state.augroup = vim.api.nvim_create_augroup("GitLuaView", { clear = true })
   main_layout(state)
   M.refresh(state)
-  vim.api.nvim_create_autocmd("WinScrolled", {
-    group = state.augroup,
-    callback = function(event)
-      if valid(state) and state.graph_image and tonumber(event.match) == state.center_window then
-        state.graph_image:visible()
-      end
-    end,
-  })
   vim.api.nvim_create_autocmd("VimResized", {
     group = state.augroup,
     callback = function()
@@ -839,7 +973,6 @@ function M.open()
     group = state.augroup,
     callback = function()
       if not vim.api.nvim_tabpage_is_valid(state.tab) then
-        close_image(state)
         if current == state then
           current = nil
         end

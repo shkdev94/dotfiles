@@ -85,7 +85,6 @@
             neovim
             tmux
             lazygit
-            resvg
             lazydocker
             ripgrep
             fd
