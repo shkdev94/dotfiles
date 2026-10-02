@@ -1,5 +1,6 @@
 local uv = vim.uv
 local context = require("pi.context")
+local git = require("pi.git")
 
 local M = {}
 local projects = {}
@@ -58,7 +59,7 @@ end
 
 local function load(cwd)
   local project =
-    { cwd = cwd, tabs = {}, selected_id = nil, page = 0, git = { branch = "", files = {} } }
+    { cwd = cwd, tabs = {}, selected_id = nil, session_scroll = 0, git = git.parse("") }
   local path = state_path(cwd)
   if vim.fn.filereadable(path) == 0 then
     return project
@@ -126,8 +127,78 @@ local function is_window(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
 
-local function page_size(project)
-  return math.min(9, math.max(1, project.height - 11))
+local function session_rows(project)
+  return math.min(9, math.max(1, math.floor((project.height - 8) / 2)))
+end
+
+local function truncate(text, width)
+  if vim.fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  if width <= 1 then
+    return "…"
+  end
+  local result = ""
+  for index = 0, vim.fn.strchars(text) - 1 do
+    local char = vim.fn.strcharpart(text, index, 1)
+    if vim.fn.strdisplaywidth(result .. char .. "…") > width then
+      break
+    end
+    result = result .. char
+  end
+  return result .. "…"
+end
+
+local function git_header(project)
+  local prefix = " Git · "
+  local suffix = string.format(" · %d uncommitted", #project.git.files)
+  if vim.fn.strdisplaywidth(prefix .. "…" .. suffix) > project.sidebar_width then
+    suffix = string.format(" · %d", #project.git.files)
+  end
+  local branch_width = project.sidebar_width - vim.fn.strdisplaywidth(prefix .. suffix)
+  return prefix .. truncate(project.git.branch, branch_width) .. suffix
+end
+
+local function status_highlight(code)
+  if code == "A" or code == "?" then
+    return "DiagnosticOk"
+  end
+  if code == "D" then
+    return "DiagnosticError"
+  end
+  return "DiagnosticWarn"
+end
+
+local function session_status(tab)
+  if tab.status == "작업 중" then
+    return "⠋ 작업 중", "DiagnosticInfo"
+  end
+  if tab.status == "오류" then
+    return "! 오류", "DiagnosticError"
+  end
+  if tab.status == "시작 중" then
+    return "… 시작 중", "Comment"
+  end
+  if tab.status == "종료" then
+    return "□ 종료", "Comment"
+  end
+  if tab.unread then
+    return "✓ 결과 확인", "DiagnosticOk"
+  end
+  return "○ 대기", "Comment"
+end
+
+local function session_line(tab, number, width, number_width)
+  local status, highlight = session_status(tab)
+  local prefix = string.format(" %" .. number_width .. "d. ", number)
+  local title_width = math.max(1, width - vim.fn.strdisplaywidth(prefix .. status) - 1)
+  local left = prefix .. truncate(tab.title, title_width)
+  local spacing = math.max(1, width - vim.fn.strdisplaywidth(left .. status))
+  return left .. string.rep(" ", spacing) .. status,
+    #left + spacing,
+    highlight,
+    assert(prefix:find("%d")) - 1,
+    #prefix - 1
 end
 
 local function render(project)
@@ -135,85 +206,182 @@ local function render(project)
     return
   end
   local height = project.height
-  local size = page_size(project)
+  local size = session_rows(project)
   local selected = active_tab(project)
-  project.page = math.min(project.page, math.max(0, math.ceil(#project.tabs / size) - 1))
+  project.session_scroll =
+    math.max(0, math.min(project.session_scroll, math.max(0, #project.tabs - size)))
 
   local lines = {}
   for index = 1, height do
     lines[index] = ""
   end
-  lines[1] = " " .. vim.fn.fnamemodify(project.cwd, ":t")
-  lines[2] = " " .. vim.fn.pathshorten(project.cwd)
-  lines[4] = string.format(" 세션 %d개   n: 새 세션", #project.tabs)
-  local start = project.page * size
-  for index = 1, size do
+  lines[1] = " " .. truncate(vim.fn.fnamemodify(project.cwd, ":~"), project.sidebar_width - 2)
+  local start = project.session_scroll
+  local visible_sessions = math.min(size, #project.tabs - start)
+  local session_first_line = 3
+  local number_width = #tostring(#project.tabs)
+  local badges = {}
+  for index = 1, visible_sessions do
     local tab = project.tabs[start + index]
-    if not tab then
-      break
-    end
-    local symbol = tab.status == "작업 중" and "◌"
-      or tab.status == "오류" and "!"
-      or tab.unread and "●"
-      or " "
-    local prefix = tab == selected and "▸" or " "
-    lines[index + 4] = string.format(" %s %d %s %s", prefix, index, symbol, tab.title)
+    local line = session_first_line + index - 1
+    local text, status_col, highlight, number_start, number_end =
+      session_line(tab, start + index, project.sidebar_width, number_width)
+    lines[line] = text
+    badges[#badges + 1] = {
+      line = line,
+      col = status_col,
+      width = #text - status_col,
+      highlight = highlight,
+      number_start = number_start,
+      number_end = number_end,
+      number_highlight = tab == selected and "CursorLineNr" or "LineNr",
+    }
   end
-  lines[height - 6] = string.format(
-    " 페이지 %d/%d  [ ] 이동",
-    project.page + 1,
-    math.max(1, math.ceil(#project.tabs / size))
-  )
-  lines[height - 5] = " Git " .. (project.git.branch or "")
-  lines[height - 4] = string.format(" 변경 %d개", #project.git.files)
-  lines[height - 3] = " Enter: 열기  Tab: Pi"
-  lines[height - 2] = " q: 숨기기"
+  local action_line = session_first_line + visible_sessions
+  lines[action_line] = " + 새 세션"
+  local git_line = session_first_line + size + 2
+  lines[git_line - 1] = " " .. string.rep("─", project.sidebar_width - 2)
+  project.session_first_line = session_first_line
+  project.session_last_line = session_first_line + size - 1
+  project.visible_session_count = visible_sessions
+  project.new_session_line = action_line
+
+  lines[git_line] = git_header(project)
+  lines[git_line + 1] = string.format(" %d staged", #project.git.staged)
+  local file_slots = math.max(0, height - git_line - 2)
+  local staged_visible = math.min(#project.git.staged, math.ceil(file_slots / 2))
+  local unstaged_visible = math.min(#project.git.unstaged, file_slots - staged_visible)
+  staged_visible = math.min(#project.git.staged, file_slots - unstaged_visible)
+  for index = 1, staged_visible do
+    local file = project.git.staged[index]
+    lines[git_line + 1 + index] = string.format("  %s %s", file.code, file.path)
+  end
+  local unstaged_line = git_line + 2 + staged_visible
+  lines[unstaged_line] = string.format(" %d unstaged", #project.git.unstaged)
+  for index = 1, unstaged_visible do
+    local file = project.git.unstaged[index]
+    lines[unstaged_line + index] = string.format("  %s %s", file.code, file.path)
+  end
 
   vim.bo[project.sidebar_buf].modifiable = true
   vim.api.nvim_buf_set_lines(project.sidebar_buf, 0, -1, false, lines)
   vim.bo[project.sidebar_buf].modifiable = false
   vim.api.nvim_buf_clear_namespace(project.sidebar_buf, project.namespace, 0, -1)
   vim.api.nvim_buf_add_highlight(project.sidebar_buf, project.namespace, "Title", 0, 0, -1)
-  vim.api.nvim_buf_add_highlight(project.sidebar_buf, project.namespace, "Title", 3, 0, -1)
   vim.api.nvim_buf_add_highlight(
     project.sidebar_buf,
     project.namespace,
     "Directory",
-    height - 6,
+    action_line - 1,
     0,
     -1
   )
-  for index = 1, size do
+  vim.api.nvim_buf_add_highlight(
+    project.sidebar_buf,
+    project.namespace,
+    "Comment",
+    git_line - 2,
+    0,
+    -1
+  )
+  vim.api.nvim_buf_add_highlight(
+    project.sidebar_buf,
+    project.namespace,
+    "Title",
+    git_line - 1,
+    0,
+    -1
+  )
+  vim.api.nvim_buf_add_highlight(
+    project.sidebar_buf,
+    project.namespace,
+    "Directory",
+    git_line,
+    0,
+    -1
+  )
+  vim.api.nvim_buf_add_highlight(
+    project.sidebar_buf,
+    project.namespace,
+    "Directory",
+    unstaged_line - 1,
+    0,
+    -1
+  )
+  for index = 1, staged_visible do
+    local file = project.git.staged[index]
+    vim.api.nvim_buf_add_highlight(
+      project.sidebar_buf,
+      project.namespace,
+      status_highlight(file.code),
+      git_line + index,
+      2,
+      3
+    )
+  end
+  for index = 1, unstaged_visible do
+    local file = project.git.unstaged[index]
+    vim.api.nvim_buf_add_highlight(
+      project.sidebar_buf,
+      project.namespace,
+      status_highlight(file.code),
+      unstaged_line + index - 1,
+      2,
+      3
+    )
+  end
+  for index = 1, visible_sessions do
     local tab = project.tabs[start + index]
     if tab and tab == selected then
       vim.api.nvim_buf_add_highlight(
         project.sidebar_buf,
         project.namespace,
         "Visual",
-        index + 3,
+        session_first_line + index - 2,
         0,
         -1
       )
     end
   end
+  for _, badge in ipairs(badges) do
+    vim.api.nvim_buf_add_highlight(
+      project.sidebar_buf,
+      project.namespace,
+      badge.number_highlight,
+      badge.line - 1,
+      badge.number_start,
+      badge.number_end
+    )
+    vim.api.nvim_buf_add_highlight(
+      project.sidebar_buf,
+      project.namespace,
+      badge.highlight,
+      badge.line - 1,
+      badge.col,
+      badge.col + badge.width
+    )
+  end
+end
+
+local function scroll_sessions(project, amount)
+  local maximum = math.max(0, #project.tabs - session_rows(project))
+  local position = math.max(0, math.min(maximum, project.session_scroll + amount))
+  if position ~= project.session_scroll then
+    project.session_scroll = position
+    render(project)
+  end
 end
 
 local function refresh_git(project)
   vim.system(
-    { "git", "status", "--short", "--branch" },
+    { "git", "status", "--porcelain=v1", "--branch", "--untracked-files=all" },
     { cwd = project.cwd, text = true },
     function(result)
       vim.schedule(function()
         if not projects[project.cwd] then
           return
         end
-        local lines = vim.split(result.stdout or "", "\n", { trimempty = true })
-        local branch = lines[1] and lines[1]:match("^## (.+)") or nil
-        local files = {}
-        for index = branch and 2 or 1, #lines do
-          files[#files + 1] = lines[index]
-        end
-        project.git = { branch = branch or "Git 없음", files = files }
+        project.git = result.code == 0 and git.parse(result.stdout or "") or git.parse("")
         render(project)
       end)
     end
@@ -472,7 +640,11 @@ function M.select(index, cwd)
   end
   project.selected_id = tab.id
   tab.unread = false
-  project.page = math.floor((index - 1) / page_size(project))
+  if index <= project.session_scroll then
+    project.session_scroll = index - 1
+  elseif index > project.session_scroll + session_rows(project) then
+    project.session_scroll = index - session_rows(project)
+  end
   save(project)
   if tab.job and tab.buf and vim.api.nvim_buf_is_valid(tab.buf) then
     vim.api.nvim_win_set_buf(project.terminal_win, tab.buf)
@@ -490,9 +662,14 @@ end
 
 local function sidebar_choice(project)
   local line = vim.api.nvim_win_get_cursor(project.sidebar_win)[1]
-  local number = line - 4
-  if number >= 1 and number <= page_size(project) then
-    M.select(project.page * page_size(project) + number, project.cwd)
+  if line == project.new_session_line then
+    add_tab(project)
+    M.select(#project.tabs, project.cwd)
+    return
+  end
+  local number = line - project.session_first_line + 1
+  if number >= 1 and number <= project.visible_session_count then
+    M.select(project.session_scroll + number, project.cwd)
   end
 end
 
@@ -516,9 +693,22 @@ local function make_sidebar(project)
     if mouse.winid == project.sidebar_win then
       vim.api.nvim_win_set_cursor(project.sidebar_win, { mouse.line, 0 })
       sidebar_choice(project)
+    elseif mouse.winid == project.terminal_win then
+      focus_terminal(project)
+    elseif mouse.winid ~= 0 and is_window(mouse.winid) then
+      vim.api.nvim_set_current_win(mouse.winid)
+      if mouse.line > 0 and mouse.column > 0 then
+        vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, mouse.column - 1 })
+      end
     end
   end)
   map("<Tab>", function()
+    focus_terminal(project)
+  end)
+  map("<C-w>l", function()
+    focus_terminal(project)
+  end)
+  map("<C-w><C-l>", function()
     focus_terminal(project)
   end)
   map("n", function()
@@ -530,16 +720,34 @@ local function make_sidebar(project)
   end)
   for digit = 1, 9 do
     map(tostring(digit), function()
-      M.select(project.page * page_size(project) + digit, project.cwd)
+      M.select(digit, project.cwd)
     end)
   end
   map("[", function()
-    project.page = math.max(0, project.page - 1)
-    render(project)
+    scroll_sessions(project, -1)
   end)
   map("]", function()
-    project.page = math.min(math.floor((#project.tabs - 1) / page_size(project)), project.page + 1)
-    render(project)
+    scroll_sessions(project, 1)
+  end)
+  map("<ScrollWheelUp>", function()
+    local mouse = vim.fn.getmousepos()
+    if
+      mouse.winid == project.sidebar_win
+      and mouse.line >= project.session_first_line
+      and mouse.line <= project.session_last_line
+    then
+      scroll_sessions(project, -3)
+    end
+  end)
+  map("<ScrollWheelDown>", function()
+    local mouse = vim.fn.getmousepos()
+    if
+      mouse.winid == project.sidebar_win
+      and mouse.line >= project.session_first_line
+      and mouse.line <= project.session_last_line
+    then
+      scroll_sessions(project, 3)
+    end
   end)
   return buf
 end
@@ -557,6 +765,7 @@ local function layout(project)
   local col = math.floor((columns - total_width) / 2)
   local row = math.floor((lines - height - 2) / 2)
   project.height = height
+  project.sidebar_width = sidebar_width
 
   local sidebar_config = {
     relative = "editor",
@@ -681,9 +890,26 @@ function M.toggle()
 end
 
 function M.sidebar()
-  local project = M.open()
+  local project = projects[current_directory()]
+  if not project or not is_window(project.sidebar_win) then
+    project = M.open()
+  end
   if project then
     vim.api.nvim_set_current_win(project.sidebar_win)
+  end
+end
+
+function M.terminal()
+  local current_win = vim.api.nvim_get_current_win()
+  for _, project in pairs(projects) do
+    if current_win == project.sidebar_win or current_win == project.terminal_win then
+      focus_terminal(project)
+      return
+    end
+  end
+  local project = M.open()
+  if project then
+    focus_terminal(project)
   end
 end
 
