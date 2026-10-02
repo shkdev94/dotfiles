@@ -8,7 +8,9 @@ Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하
 
 ## Neovim 통합
 
-`nvim/plugin/pi.lua`가 작업 디렉터리마다 Pi 세션 목록을 관리한다. 왼쪽 사이드바는 Neovim 버퍼이고 오른쪽은 선택한 세션의 Pi TUI 터미널 버퍼다. float를 숨기거나 다른 세션을 선택해도 각 Pi 프로세스는 계속 실행된다. Neovim을 종료한 뒤에는 Pi의 세션 파일로 대화를 복원한다.
+`nvim/plugin/pi.lua`가 작업 디렉터리마다 Pi 세션 목록을 관리한다. 둥근 테두리의 float는 왼쪽 위 **Sessions**, 왼쪽 아래 **Git**, 오른쪽 **Session**의 세 영역으로 나뉜다. 오른쪽은 선택한 세션의 Pi TUI 터미널 버퍼다. float를 숨기거나 다른 세션을 선택해도 각 Pi 프로세스는 계속 실행된다. Neovim을 종료한 뒤에는 Pi의 세션 파일로 대화를 복원한다.
+
+Neovim에서 실행하는 Pi는 `--tui-mode fullscreen`을 사용해 대화가 짧아도 입력창과 상태 영역을 터미널 아래쪽에 고정한다. 대화 내용은 그 위의 영역에서 스크롤한다.
 
 - `<leader>pt` 또는 `:Pi`: float 열기·숨기기
 - `<leader>pn` 또는 `:PiNew`: 새 세션

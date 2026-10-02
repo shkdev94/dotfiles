@@ -136,7 +136,7 @@ local function is_window(win)
 end
 
 local function session_rows(project)
-  return math.min(9, math.max(1, math.floor((project.height - 8) / 2)))
+  return math.min(9, math.max(1, project.session_height - 4))
 end
 
 local function truncate(text, width)
@@ -158,7 +158,7 @@ local function truncate(text, width)
 end
 
 local function git_header(project)
-  local prefix = " Git · "
+  local prefix = " "
   local suffix = string.format(" · %d uncommitted", #project.git.files)
   if vim.fn.strdisplaywidth(prefix .. "…" .. suffix) > project.sidebar_width then
     suffix = string.format(" · %d", #project.git.files)
@@ -216,11 +216,11 @@ local function session_line(tab, number, width, number_width, frame)
     #prefix - 1
 end
 
-local function render(project)
+local function render_sessions(project)
   if not project.sidebar_buf or not vim.api.nvim_buf_is_valid(project.sidebar_buf) then
     return
   end
-  local height = project.height
+  local height = project.session_height
   local size = session_rows(project)
   local selected = active_tab(project)
   local frame = spinner_frames[project.frame_index]
@@ -255,29 +255,13 @@ local function render(project)
   end
   local action_line = session_first_line + visible_sessions
   lines[action_line] = " + 새 세션"
-  local git_line = session_first_line + size + 2
-  lines[git_line - 1] = " " .. string.rep("─", project.sidebar_width - 2)
+  if #project.tabs > size then
+    lines[height] = string.format(" %d–%d/%d", start + 1, start + visible_sessions, #project.tabs)
+  end
   project.session_first_line = session_first_line
   project.session_last_line = session_first_line + size - 1
   project.visible_session_count = visible_sessions
   project.new_session_line = action_line
-
-  lines[git_line] = git_header(project)
-  lines[git_line + 1] = string.format(" %d staged", #project.git.staged)
-  local file_slots = math.max(0, height - git_line - 2)
-  local staged_visible = math.min(#project.git.staged, math.ceil(file_slots / 2))
-  local unstaged_visible = math.min(#project.git.unstaged, file_slots - staged_visible)
-  staged_visible = math.min(#project.git.staged, file_slots - unstaged_visible)
-  for index = 1, staged_visible do
-    local file = project.git.staged[index]
-    lines[git_line + 1 + index] = string.format("  %s %s", file.code, file.path)
-  end
-  local unstaged_line = git_line + 2 + staged_visible
-  lines[unstaged_line] = string.format(" %d unstaged", #project.git.unstaged)
-  for index = 1, unstaged_visible do
-    local file = project.git.unstaged[index]
-    lines[unstaged_line + index] = string.format("  %s %s", file.code, file.path)
-  end
 
   vim.bo[project.sidebar_buf].modifiable = true
   vim.api.nvim_buf_set_lines(project.sidebar_buf, 0, -1, false, lines)
@@ -292,58 +276,14 @@ local function render(project)
     0,
     -1
   )
-  vim.api.nvim_buf_add_highlight(
-    project.sidebar_buf,
-    project.namespace,
-    "Comment",
-    git_line - 2,
-    0,
-    -1
-  )
-  vim.api.nvim_buf_add_highlight(
-    project.sidebar_buf,
-    project.namespace,
-    "Title",
-    git_line - 1,
-    0,
-    -1
-  )
-  vim.api.nvim_buf_add_highlight(
-    project.sidebar_buf,
-    project.namespace,
-    "Directory",
-    git_line,
-    0,
-    -1
-  )
-  vim.api.nvim_buf_add_highlight(
-    project.sidebar_buf,
-    project.namespace,
-    "Directory",
-    unstaged_line - 1,
-    0,
-    -1
-  )
-  for index = 1, staged_visible do
-    local file = project.git.staged[index]
+  if #project.tabs > size then
     vim.api.nvim_buf_add_highlight(
       project.sidebar_buf,
       project.namespace,
-      status_highlight(file.code),
-      git_line + index,
-      2,
-      3
-    )
-  end
-  for index = 1, unstaged_visible do
-    local file = project.git.unstaged[index]
-    vim.api.nvim_buf_add_highlight(
-      project.sidebar_buf,
-      project.namespace,
-      status_highlight(file.code),
-      unstaged_line + index - 1,
-      2,
-      3
+      "Comment",
+      height - 1,
+      0,
+      -1
     )
   end
   for index = 1, visible_sessions do
@@ -377,6 +317,75 @@ local function render(project)
       badge.col + badge.width
     )
   end
+end
+
+local function render_git(project)
+  if not project.git_buf or not vim.api.nvim_buf_is_valid(project.git_buf) then
+    return
+  end
+  local height = project.git_height
+  local lines = {}
+  for index = 1, height do
+    lines[index] = ""
+  end
+  lines[1] = git_header(project)
+  lines[2] = string.format(" %d staged", #project.git.staged)
+  local file_slots = math.max(0, height - 3)
+  local staged_visible = math.min(#project.git.staged, math.ceil(file_slots / 2))
+  local unstaged_visible = math.min(#project.git.unstaged, file_slots - staged_visible)
+  staged_visible = math.min(#project.git.staged, file_slots - unstaged_visible)
+  for index = 1, staged_visible do
+    local file = project.git.staged[index]
+    lines[2 + index] = string.format("  %s %s", file.code, file.path)
+  end
+  local unstaged_line = 3 + staged_visible
+  lines[unstaged_line] = string.format(" %d unstaged", #project.git.unstaged)
+  for index = 1, unstaged_visible do
+    local file = project.git.unstaged[index]
+    lines[unstaged_line + index] = string.format("  %s %s", file.code, file.path)
+  end
+
+  vim.bo[project.git_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(project.git_buf, 0, -1, false, lines)
+  vim.bo[project.git_buf].modifiable = false
+  vim.api.nvim_buf_clear_namespace(project.git_buf, project.namespace, 0, -1)
+  vim.api.nvim_buf_add_highlight(project.git_buf, project.namespace, "Title", 0, 0, -1)
+  vim.api.nvim_buf_add_highlight(project.git_buf, project.namespace, "Directory", 1, 0, -1)
+  vim.api.nvim_buf_add_highlight(
+    project.git_buf,
+    project.namespace,
+    "Directory",
+    unstaged_line - 1,
+    0,
+    -1
+  )
+  for index = 1, staged_visible do
+    local file = project.git.staged[index]
+    vim.api.nvim_buf_add_highlight(
+      project.git_buf,
+      project.namespace,
+      status_highlight(file.code),
+      1 + index,
+      2,
+      3
+    )
+  end
+  for index = 1, unstaged_visible do
+    local file = project.git.unstaged[index]
+    vim.api.nvim_buf_add_highlight(
+      project.git_buf,
+      project.namespace,
+      status_highlight(file.code),
+      unstaged_line + index - 1,
+      2,
+      3
+    )
+  end
+end
+
+local function render(project)
+  render_sessions(project)
+  render_git(project)
 end
 
 local function scroll_sessions(project, amount)
@@ -625,7 +634,7 @@ local function spawn(project, tab)
   vim.bo[tab.buf].bufhidden = "hide"
   vim.api.nvim_win_set_buf(project.terminal_win, tab.buf)
   local socket = start_socket(project, tab)
-  local argv = { command }
+  local argv = { command, "--tui-mode", "fullscreen" }
   if tab.session_file and vim.fn.filereadable(tab.session_file) == 1 then
     vim.list_extend(argv, { "--session", tab.session_file })
   else
@@ -789,6 +798,47 @@ local function make_sidebar(project)
   return buf
 end
 
+local function make_git(project)
+  if project.git_buf and vim.api.nvim_buf_is_valid(project.git_buf) then
+    return project.git_buf
+  end
+  local buf = vim.api.nvim_create_buf(false, true)
+  project.git_buf = buf
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].filetype = "pi"
+  vim.bo[buf].modifiable = false
+  local map = function(key, callback)
+    vim.keymap.set("n", key, callback, { buffer = buf, nowait = true, silent = true })
+  end
+  map("<LeftMouse>", function()
+    local mouse = vim.fn.getmousepos()
+    if mouse.winid == project.terminal_win then
+      focus_terminal(project)
+    elseif mouse.winid == project.sidebar_win then
+      vim.api.nvim_set_current_win(project.sidebar_win)
+      if mouse.line > 0 then
+        vim.api.nvim_win_set_cursor(project.sidebar_win, { mouse.line, 0 })
+        sidebar_choice(project)
+      end
+    elseif mouse.winid ~= 0 and is_window(mouse.winid) then
+      vim.api.nvim_set_current_win(mouse.winid)
+    end
+  end)
+  map("<Tab>", function()
+    focus_terminal(project)
+  end)
+  map("<C-w>l", function()
+    focus_terminal(project)
+  end)
+  map("<C-w>k", function()
+    vim.api.nvim_set_current_win(project.sidebar_win)
+  end)
+  map("q", function()
+    M.close(project.cwd)
+  end)
+  return buf
+end
+
 local function layout(project)
   local columns = vim.o.columns
   local lines = vim.o.lines - vim.o.cmdheight - 1
@@ -797,11 +847,15 @@ local function layout(project)
   end
   local total_width = math.min(math.floor(columns * 0.95), columns - 4)
   local height = math.min(math.floor(lines * 0.86), lines - 4) - 2
+  local sidebar_height = math.max(5, math.min(15, math.floor((height - 2) * 0.48)))
+  local git_height = height - sidebar_height - 3
   local sidebar_width = math.min(36, math.max(24, math.floor(total_width * 0.29)))
-  local terminal_width = total_width - sidebar_width - 4
+  local terminal_width = total_width - sidebar_width - 5
   local col = math.floor((columns - total_width) / 2)
   local row = math.floor((lines - height - 2) / 2)
   project.height = height
+  project.session_height = sidebar_height
+  project.git_height = git_height
   project.sidebar_width = sidebar_width
 
   local sidebar_config = {
@@ -809,34 +863,50 @@ local function layout(project)
     row = row,
     col = col,
     width = sidebar_width,
-    height = height,
+    height = sidebar_height,
     style = "minimal",
     border = "rounded",
-    title = " Pi ",
+    title = " Sessions ",
+    zindex = 50,
+  }
+  local git_config = {
+    relative = "editor",
+    row = row + sidebar_height + 3,
+    col = col,
+    width = sidebar_width,
+    height = git_height,
+    style = "minimal",
+    border = "rounded",
+    title = " Git ",
     zindex = 50,
   }
   local terminal_config = {
     relative = "editor",
     row = row,
-    col = col + sidebar_width + 2,
+    col = col + sidebar_width + 3,
     width = terminal_width,
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Pi 세션 ",
+    title = " Session ",
     zindex = 50,
   }
-  if is_window(project.sidebar_win) and is_window(project.terminal_win) then
+  if
+    is_window(project.sidebar_win)
+    and is_window(project.git_win)
+    and is_window(project.terminal_win)
+  then
     vim.api.nvim_win_set_config(project.sidebar_win, sidebar_config)
+    vim.api.nvim_win_set_config(project.git_win, git_config)
     vim.api.nvim_win_set_config(project.terminal_win, terminal_config)
   else
-    if is_window(project.sidebar_win) then
-      vim.api.nvim_win_close(project.sidebar_win, true)
-    end
-    if is_window(project.terminal_win) then
-      vim.api.nvim_win_close(project.terminal_win, true)
+    for _, key in ipairs({ "sidebar_win", "git_win", "terminal_win" }) do
+      if is_window(project[key]) then
+        vim.api.nvim_win_close(project[key], true)
+      end
     end
     project.sidebar_win = vim.api.nvim_open_win(make_sidebar(project), false, sidebar_config)
+    project.git_win = vim.api.nvim_open_win(make_git(project), false, git_config)
     local tab = active_tab(project)
     local buffer = tab and tab.buf and vim.api.nvim_buf_is_valid(tab.buf) and tab.buf
       or vim.api.nvim_create_buf(false, true)
@@ -844,6 +914,8 @@ local function layout(project)
     vim.wo[project.sidebar_win].number = false
     vim.wo[project.sidebar_win].cursorline = true
     vim.wo[project.sidebar_win].wrap = false
+    vim.wo[project.git_win].number = false
+    vim.wo[project.git_win].wrap = false
     vim.wo[project.terminal_win].number = false
     vim.wo[project.terminal_win].signcolumn = "no"
   end
@@ -924,14 +996,12 @@ function M.close(cwd)
   if not project then
     return
   end
-  if is_window(project.sidebar_win) then
-    vim.api.nvim_win_close(project.sidebar_win, true)
+  for _, key in ipairs({ "sidebar_win", "git_win", "terminal_win" }) do
+    if is_window(project[key]) then
+      vim.api.nvim_win_close(project[key], true)
+    end
+    project[key] = nil
   end
-  if is_window(project.terminal_win) then
-    vim.api.nvim_win_close(project.terminal_win, true)
-  end
-  project.sidebar_win = nil
-  project.terminal_win = nil
   if project.git_timer then
     project.git_timer:stop()
     project.git_timer:close()
@@ -967,7 +1037,11 @@ end
 function M.terminal()
   local current_win = vim.api.nvim_get_current_win()
   for _, project in pairs(projects) do
-    if current_win == project.sidebar_win or current_win == project.terminal_win then
+    if
+      current_win == project.sidebar_win
+      or current_win == project.git_win
+      or current_win == project.terminal_win
+    then
       focus_terminal(project)
       return
     end
@@ -1024,9 +1098,19 @@ function M.setup(options)
     callback = function(event)
       local closed = tonumber(event.match)
       for _, project in pairs(projects) do
-        if closed == project.sidebar_win or closed == project.terminal_win then
+        if
+          closed == project.sidebar_win
+          or closed == project.git_win
+          or closed == project.terminal_win
+        then
           vim.schedule(function()
-            M.close(project.cwd)
+            if
+              closed == project.sidebar_win
+              or closed == project.git_win
+              or closed == project.terminal_win
+            then
+              M.close(project.cwd)
+            end
           end)
         end
       end
