@@ -6,6 +6,7 @@ local M = {}
 local projects = {}
 local command = "pi"
 local socket_number = 0
+local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
 local function notify(message, level)
   vim.notify("Pi: " .. message, level or vim.log.levels.WARN)
@@ -37,7 +38,8 @@ end
 local function save(project)
   local tabs = {}
   for _, tab in ipairs(project.tabs) do
-    tabs[#tabs + 1] = { id = tab.id, title = tab.title, session_file = tab.session_file }
+    tabs[#tabs + 1] =
+      { id = tab.id, title = tab.title, session_file = tab.session_file, unread = tab.unread }
   end
   local path = state_path(project.cwd)
   local temporary = path .. "." .. uv.os_getpid() .. ".tmp"
@@ -58,8 +60,14 @@ local function save(project)
 end
 
 local function load(cwd)
-  local project =
-    { cwd = cwd, tabs = {}, selected_id = nil, session_scroll = 0, git = git.parse("") }
+  local project = {
+    cwd = cwd,
+    tabs = {},
+    selected_id = nil,
+    session_scroll = 0,
+    frame_index = 1,
+    git = git.parse(""),
+  }
   local path = state_path(cwd)
   if vim.fn.filereadable(path) == 0 then
     return project
@@ -91,7 +99,7 @@ local function load(cwd)
         title = type(item.title) == "string" and item.title or "새 세션",
         session_file = type(item.session_file) == "string" and item.session_file or nil,
         status = "대기",
-        unread = false,
+        unread = item.unread == true,
         pending = {},
       }
     end
@@ -169,12 +177,19 @@ local function status_highlight(code)
   return "DiagnosticWarn"
 end
 
-local function session_status(tab)
+local function session_status(tab, frame)
   if tab.status == "작업 중" then
-    return "⠋ 작업 중", "DiagnosticInfo"
+    local phase = tab.phase == "retry" and "재시도"
+      or tab.phase == "tool" and "도구 실행"
+      or tab.phase == "compaction" and "정리 중"
+      or "작업 중"
+    return frame .. " " .. phase, "DiagnosticInfo"
+  end
+  if tab.status == "입력 필요" then
+    return "◉ 입력 필요", "DiagnosticWarn"
   end
   if tab.status == "오류" then
-    return "! 오류", "DiagnosticError"
+    return tab.unread and "! 오류 확인" or "! 오류", "DiagnosticError"
   end
   if tab.status == "시작 중" then
     return "… 시작 중", "Comment"
@@ -188,8 +203,8 @@ local function session_status(tab)
   return "○ 대기", "Comment"
 end
 
-local function session_line(tab, number, width, number_width)
-  local status, highlight = session_status(tab)
+local function session_line(tab, number, width, number_width, frame)
+  local status, highlight = session_status(tab, frame)
   local prefix = string.format(" %" .. number_width .. "d. ", number)
   local title_width = math.max(1, width - vim.fn.strdisplaywidth(prefix .. status) - 1)
   local left = prefix .. truncate(tab.title, title_width)
@@ -208,6 +223,7 @@ local function render(project)
   local height = project.height
   local size = session_rows(project)
   local selected = active_tab(project)
+  local frame = spinner_frames[project.frame_index]
   project.session_scroll =
     math.max(0, math.min(project.session_scroll, math.max(0, #project.tabs - size)))
 
@@ -225,7 +241,7 @@ local function render(project)
     local tab = project.tabs[start + index]
     local line = session_first_line + index - 1
     local text, status_col, highlight, number_start, number_end =
-      session_line(tab, start + index, project.sidebar_width, number_width)
+      session_line(tab, start + index, project.sidebar_width, number_width, frame)
     lines[line] = text
     badges[#badges + 1] = {
       line = line,
@@ -440,6 +456,7 @@ local function handle_message(project, tab, client, message)
     tab.client = client
     tab.connected = true
     tab.status = "대기"
+    tab.phase = nil
     if type(message.sessionId) == "string" and message.sessionId ~= tab.id then
       local previous_id = tab.id
       tab.id = message.sessionId
@@ -465,14 +482,34 @@ local function handle_message(project, tab, client, message)
     return
   elseif message.type == "working" then
     tab.status = "작업 중"
+    tab.phase = message.phase
+  elseif message.type == "blocked" then
+    tab.status = "입력 필요"
+    tab.phase = nil
+  elseif message.type == "idle" then
+    tab.status = "대기"
+    tab.phase = nil
   elseif message.type == "settled" then
-    tab.status = message.error and "오류" or "대기"
-    tab.unread = true
+    local failed = message.outcome == "error" or message.error == true
+    tab.status = failed and "오류" or "대기"
+    tab.phase = nil
+    if message.outcome ~= "aborted" then
+      tab.unread = true
+    end
+    save(project)
+  elseif message.type == "read" then
+    if tab.unread then
+      tab.unread = false
+      save(project)
+    end
   elseif message.type == "name" then
     tab.title = type(message.name) == "string" and message.name or "세션 " .. tab.id:sub(1, 8)
     save(project)
   elseif message.type == "error" then
     tab.status = "오류"
+    tab.phase = nil
+    tab.unread = true
+    save(project)
     notify(tostring(message.message), vim.log.levels.ERROR)
   end
   render(project)
@@ -827,6 +864,28 @@ local function start_git_timer(project)
   project.git_timer = timer
 end
 
+local function start_spinner_timer(project)
+  if project.spinner_timer then
+    return
+  end
+  local timer = uv.new_timer()
+  timer:start(120, 120, function()
+    vim.schedule(function()
+      if not is_window(project.sidebar_win) then
+        return
+      end
+      for _, tab in ipairs(project.tabs) do
+        if tab.status == "작업 중" then
+          project.frame_index = (project.frame_index % #spinner_frames) + 1
+          render(project)
+          return
+        end
+      end
+    end)
+  end)
+  project.spinner_timer = timer
+end
+
 local function open(cwd)
   local project = projects[cwd]
   if not project then
@@ -839,6 +898,7 @@ local function open(cwd)
   end
   layout(project)
   start_git_timer(project)
+  start_spinner_timer(project)
   local index = 1
   for position, tab in ipairs(project.tabs) do
     if tab.id == project.selected_id then
@@ -876,6 +936,11 @@ function M.close(cwd)
     project.git_timer:stop()
     project.git_timer:close()
     project.git_timer = nil
+  end
+  if project.spinner_timer then
+    project.spinner_timer:stop()
+    project.spinner_timer:close()
+    project.spinner_timer = nil
   end
 end
 
