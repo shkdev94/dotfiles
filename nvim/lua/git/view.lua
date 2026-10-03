@@ -23,7 +23,7 @@ local extras_tabs = {
 local icons = { branch = "", tag = "", folder = "" }
 
 local function icon_prefix(icon, checked_out)
-  return (checked_out and " ✓ " or "   ") .. icon .. " "
+  return (checked_out and " ✓ " or " ") .. icon .. " "
 end
 
 vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
@@ -334,26 +334,16 @@ local function common_maps(state, target)
   end, "Refresh Git view")
 end
 
-local function style_details(target, content, color)
+local function style_details(target, content)
   vim.api.nvim_buf_clear_namespace(target, graph_namespace, 0, -1)
-  if color then
-    vim.api.nvim_buf_set_extmark(target, graph_namespace, 0, 0, {
-      line_hl_group = graph.row_highlight_group(color),
-      priority = 10,
-    })
-  end
   for index, line in ipairs(content) do
-    if line:find("^ Message$") or line:find("^ Changed files") or line:match("^ %u+ %(") then
+    if
+      line:find("^ Message$")
+      or line:find("^ Tags$")
+      or line:find("^ Changed files")
+      or line:match("^ %u+ %(")
+    then
       vim.api.nvim_buf_add_highlight(target, graph_namespace, "Title", index - 1, 1, #line)
-    elseif line:find("^ Branches") and color then
-      vim.api.nvim_buf_add_highlight(
-        target,
-        graph_namespace,
-        graph.highlight_group(color),
-        index - 1,
-        1,
-        9
-      )
     elseif line:match("^  [AMDRCU%?]  ") then
       local status = line:sub(3, 3)
       local group = (status == "A" or status == "?") and "DiffAdd"
@@ -371,7 +361,11 @@ local function wrap_line(line, width)
     local character = vim.fn.strcharpart(line, index, 1)
     if current ~= "" and vim.fn.strdisplaywidth(current .. character) > width then
       local prefix, suffix = current:match("^(.*%S)%s+(%S+)$")
-      if prefix and vim.fn.strdisplaywidth("  " .. suffix .. character) <= width then
+      if
+        prefix
+        and vim.fn.strchars(vim.trim(prefix)) > 1
+        and vim.fn.strdisplaywidth("  " .. suffix .. character) <= width
+      then
         wrapped[#wrapped + 1] = prefix
         current = "  " .. suffix .. character
       else
@@ -386,9 +380,8 @@ local function wrap_line(line, width)
   return wrapped
 end
 
-local function render_detail_info(state, content, color)
+local function render_detail_info(state, content)
   state.detail_content = content
-  state.detail_color = color
   local width = math.max(4, vim.api.nvim_win_get_width(state.detail_window) - 2)
   local height = vim.fn.getwininfo(state.detail_window)[1].height
   local visible = {}
@@ -409,7 +402,7 @@ local function render_detail_info(state, content, color)
     visible[#visible] = short(visible[#visible], width - 1) .. "…"
   end
   lines(state.detail_buffer, visible)
-  style_details(state.detail_buffer, visible, color)
+  style_details(state.detail_buffer, visible)
 end
 
 local function render_changed_files(state, content)
@@ -432,7 +425,6 @@ local function show_status(state)
   state.detail_files = state.status or {}
   state.detail_lines = {}
   state.detail_content = nil
-  state.detail_color = nil
   update_right_layout(state)
   lines(state.detail_buffer, { "" })
   vim.api.nvim_buf_clear_namespace(state.detail_buffer, graph_namespace, 0, -1)
@@ -477,10 +469,9 @@ local function show_commit(state, commit)
   local request = state.detail_request
   state.detail_files = {}
   state.detail_lines = {}
-  state.branch_cache = state.branch_cache or {}
-  local branches = state.branch_cache[commit.id]
-  local branch_error
-  local color = state.commit_colors and state.commit_colors[commit.id]
+  local tags = vim.tbl_filter(function(reference)
+    return reference.kind == "Tags" and reference.id == commit.id
+  end, state.refs or {})
   local hash_width = math.min(12, math.max(7, vim.api.nvim_win_get_width(state.detail_window) - 10))
   local display_hash = commit.id:sub(1, hash_width)
   local loading = {
@@ -491,7 +482,7 @@ local function show_commit(state, commit)
     " Message",
     " Loading details…",
   }
-  render_detail_info(state, loading, color)
+  render_detail_info(state, loading)
   render_changed_files(state, { " Loading changed files…" })
 
   local message, files
@@ -506,18 +497,19 @@ local function show_commit(state, commit)
       " Commit " .. display_hash,
       " Author: " .. (commit.author or ""),
       " Date: " .. (commit.date or ""),
-      branch_error and " Branches: unavailable" or branches and string.format(
-        " Branches (%d): %s",
-        #branches,
-        #branches > 0 and table.concat(branches, ", ") or "none"
-      ) or " Branches: loading…",
-      "",
-      " Message",
     }
+    if #tags > 0 then
+      output[#output + 1] = " Tags"
+      for _, tag in ipairs(tags) do
+        output[#output + 1] = "   " .. icons.tag .. " " .. tag.name
+      end
+    end
+    output[#output + 1] = ""
+    output[#output + 1] = " Message"
     for _, line in ipairs(vim.split(vim.trim(message), "\n", { plain = true })) do
       output[#output + 1] = " " .. line
     end
-    render_detail_info(state, output, color)
+    render_detail_info(state, output)
     if state.detail_files ~= files then
       state.detail_files = files
       state.detail_lines = {}
@@ -544,24 +536,6 @@ local function show_commit(state, commit)
     end
     render()
   end)
-  if not branches then
-    vim.defer_fn(function()
-      if not valid(state) or state.page ~= "main" or state.detail_request ~= request then
-        return
-      end
-      data.containing_branches(state.root, commit.id, function(error_message, result)
-        if not valid(state) or state.detail_request ~= request then
-          return
-        end
-        branch_error = error_message
-        branches = error_message and {} or result
-        if not error_message then
-          state.branch_cache[commit.id] = branches
-        end
-        render()
-      end)
-    end, 180)
-  end
 end
 
 local function decorate(state)
@@ -588,7 +562,9 @@ local function ref_summary(references)
   if not references or #references == 0 then
     return nil
   end
-  local label = references[1].name
+  local first = references[1]
+  local icon = first.kind == "Tags" and icons.tag or icons.branch
+  local label = icon .. " " .. first.name
   if #references > 1 then
     label = label .. " +" .. (#references - 1)
   end
@@ -599,20 +575,10 @@ local function working_tree_entry(state)
   if #state.status == 0 or (state.reference and state.reference ~= "refs/heads/" .. state.head) then
     return nil
   end
-  local counts = { staged = 0, unstaged = 0, untracked = 0 }
-  for _, file in ipairs(state.status) do
-    counts[file.kind] = counts[file.kind] + 1
-  end
   return {
     id = working_tree_id,
     parents = state.head_oid and { state.head_oid } or {},
     working_tree = true,
-    subject = string.format(
-      "%d staged · %d unstaged · %d untracked",
-      counts.staged,
-      counts.unstaged,
-      counts.untracked
-    ),
   }
 end
 
@@ -640,7 +606,6 @@ local function update_selection_highlight(state)
       {
         end_col = bridge.finish,
         hl_group = graph.selected_highlight_group(bridge.color),
-        line_hl_group = graph.selected_line_highlight_group(bridge.color),
         priority = 200,
       }
     )
@@ -662,18 +627,15 @@ local function render_history(state)
   local bridge_ranges = {}
   local accent_spans = {}
   local label_spans = {}
+  local label_connection_spans = {}
   state.history_lines = {}
   state.load_more_line = nil
   local references = decorate(state)
 
   if state.mode == "reflog" then
     for index, entry in ipairs(state.reflog or {}) do
-      result[index] = string.format(
-        " %s  %s  %s",
-        padded(entry.selector, 12),
-        entry.id:sub(1, 7),
-        short(entry.subject, width - 26)
-      )
+      result[index] =
+        string.format(" %s  %s  %s", padded(entry.selector, 12), entry.id:sub(1, 7), entry.subject)
       state.history_lines[index] = entry
     end
     if #result == 0 then
@@ -687,38 +649,45 @@ local function render_history(state)
     end
     vim.list_extend(commits, state.commits or {})
     state.layout = graph.layout(commits)
-    state.commit_colors = {}
     local label_width = width >= 80 and math.min(22, math.floor(width * 0.22)) or 0
     local graph_width = math.max(
       6,
       math.min(34, state.layout.lanes * 3 + 2, math.floor((width - label_width) * 0.45))
     )
     local separator = "   ▏ "
-    local content_width =
-      math.max(1, width - label_width - graph_width - vim.fn.strdisplaywidth(separator))
 
     local function append(graph_text, spans, commit, color, label, is_commit_row)
       local line = #result + 1
       local prefix = string.rep(" ", label_width)
       if label and label_width > 0 then
-        local text = short(label, label_width - 2)
-        prefix = " " .. padded(text, label_width - 1)
+        local text = short(label, label_width - 4)
+        local label_prefix = " " .. text .. " "
+        prefix = label_prefix
+          .. string.rep("─", label_width - vim.fn.strdisplaywidth(label_prefix))
+        label_connection_spans[line] = {
+          start = #label_prefix,
+          finish = #prefix,
+          color = color,
+        }
         label_spans[line] = { start = 1, finish = 1 + #text, color = color }
       end
       if is_commit_row then
-        local message = commit.working_tree and ("Uncommitted changes · " .. commit.subject)
-          or commit.subject
-        result[line] = prefix .. graph_text .. separator .. short(message, content_width)
-        local node_start = graph_text:find(commit.working_tree and "◌" or "●", 1, true)
-        local stripe_start = #prefix + #graph_text + #"   "
-        if node_start then
-          bridge_ranges[line] = {
-            start = #prefix + node_start - 1,
-            finish = stripe_start + #"▏",
-            color = color,
-          }
+        if commit.working_tree then
+          result[line] = prefix .. graph_text
+        else
+          result[line] = prefix .. graph_text .. separator .. commit.subject
+          local node_start = graph_text:find("●", 1, true)
+          local stripe_start = #prefix + #graph_text + #"   "
+          if node_start then
+            bridge_ranges[line] = {
+              start = #prefix + node_start - 1,
+              finish = stripe_start + #"▏",
+              color = color,
+            }
+          end
+          accent_spans[line] =
+            { start = stripe_start, finish = stripe_start + #"▏", color = color }
         end
-        accent_spans[line] = { start = stripe_start, finish = stripe_start + #"▏", color = color }
       else
         result[line] = prefix .. graph_text
       end
@@ -728,9 +697,9 @@ local function render_history(state)
 
     for _, row in ipairs(state.layout.rows) do
       local commit = row.commit
-      local label = commit.working_tree and "Working tree" or ref_summary(references[commit.id])
-      state.commit_colors[commit.id] = row.color
-      local commit_text, commit_spans = graph.commit_line(row, graph_width)
+      local label = not commit.working_tree and ref_summary(references[commit.id]) or nil
+      local connect_ref = label and label_width > 0
+      local commit_text, commit_spans = graph.commit_line(row, graph_width, connect_ref)
       append(commit_text, commit_spans, commit, row.color, label, true)
       local connector_text, connector_spans = graph.connector_line(row, graph_width)
       append(connector_text, connector_spans, commit, row.color, nil, false)
@@ -780,6 +749,16 @@ local function render_history(state)
       line - 1,
       label.start,
       label.finish
+    )
+  end
+  for line, connection in pairs(label_connection_spans) do
+    vim.api.nvim_buf_add_highlight(
+      state.center_buffer,
+      graph_namespace,
+      graph.highlight_group(connection.color),
+      line - 1,
+      connection.start,
+      connection.finish
     )
   end
   for line, graph_line in pairs(graph_spans) do
@@ -873,7 +852,7 @@ local function render_extras(state)
     if selected_tab.items == "worktrees" then
       local folder = short(vim.fs.basename(item.path), width - 4)
       output[#output + 1] = " " .. icons.folder .. " " .. folder
-      local prefix = icon_prefix(icons.branch, false)
+      local prefix = " └ " .. icons.branch .. " "
       local name_width = width - vim.fn.strdisplaywidth(prefix) - 1
       output[#output + 1] = prefix .. short(item.branch or "detached", name_width)
     else
@@ -1092,6 +1071,7 @@ local function main_layout(state)
     vim.wo[window].linebreak = true
     vim.wo[window].breakindent = true
   end
+  vim.wo[state.detail_window].cursorline = false
   main_maps(state)
   vim.api.nvim_create_autocmd("CursorMoved", {
     group = state.augroup,
@@ -1285,6 +1265,9 @@ function M.refresh(state)
       state.refs = refs
       render_history(state)
       render_sidebar(state)
+      if state.selected then
+        show_commit(state, state.selected)
+      end
     end)
   )
   data.status(
@@ -1416,7 +1399,7 @@ function M.open()
         render_extras(state)
         render_history(state)
         if state.selected and state.detail_content then
-          render_detail_info(state, state.detail_content, state.detail_color)
+          render_detail_info(state, state.detail_content)
         end
         if state.selected then
           set_title(state.detail_window, 4, "Commit details")

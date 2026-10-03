@@ -75,6 +75,7 @@ function M.layout(commits)
           to = index,
           color = lane.color,
           dotted = lane.dotted,
+          kind = "lane",
         }
       end
     end
@@ -95,6 +96,7 @@ function M.layout(commits)
         to = destination,
         color = parent_index == 1 and current.color or after[destination].color,
         dotted = commit.working_tree or false,
+        kind = "parent",
       }
     end
 
@@ -148,7 +150,7 @@ local function position(lane)
   return lane * 3 - 1
 end
 
-function M.commit_line(row, width)
+function M.commit_line(row, width, connect_ref)
   local cells = empty_cells(width)
   for index, lane in ipairs(row.before) do
     local column = position(index)
@@ -158,6 +160,16 @@ function M.commit_line(row, width)
           or (lane.dotted and "┊" or "│"),
         color = lane.color,
       }
+    end
+  end
+  local node_column = position(row.lane)
+  if connect_ref and node_column <= width then
+    for column = 1, node_column - 1 do
+      local cell = cells[column]
+      if cell.symbol ~= "│" and cell.symbol ~= "┊" then
+        cell.symbol = "─"
+        cell.color = row.color
+      end
     end
   end
   return cells_to_text(cells)
@@ -190,9 +202,13 @@ function M.connector_line(row, width)
     if source <= width and destination <= width then
       local function connect(column, direction)
         local cell = cells[column]
+        if cell.lane and edge.kind == "parent" then
+          return
+        end
         cell.mask = bit.bor(cell.mask or 0, direction)
-        cell.color = edge.color
+        cell.color = edge.kind == "parent" and column == source and row.color or edge.color
         cell.dotted = edge.dotted
+        cell.lane = edge.kind == "lane"
       end
 
       if source == destination then
@@ -239,7 +255,6 @@ local function groups(color)
     line = "GitLuaGraph" .. suffix,
     row = "GitLuaBranchRow" .. suffix,
     selected = "GitLuaBranchSelected" .. suffix,
-    selected_line = "GitLuaBranchSelectedLine" .. suffix,
     ref = "GitLuaBranchRef" .. suffix,
   }
   local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
@@ -252,14 +267,8 @@ local function groups(color)
     names.selected,
     { bg = tint(background, foreground, 0.42), default = true }
   )
-  vim.api.nvim_set_hl(
-    0,
-    names.selected_line,
-    { bg = tint(background, foreground, 0.10), default = true }
-  )
   vim.api.nvim_set_hl(0, names.ref, {
     fg = color,
-    bg = tint(background, foreground, 0.32),
     bold = true,
     default = true,
   })
@@ -277,10 +286,6 @@ end
 
 function M.selected_highlight_group(color)
   return groups(color).selected
-end
-
-function M.selected_line_highlight_group(color)
-  return groups(color).selected_line
 end
 
 function M.ref_highlight_group(color)
