@@ -7,10 +7,31 @@ local window_options
 local graph_namespace = vim.api.nvim_create_namespace("git.lua.graph")
 local selection_namespace = vim.api.nvim_create_namespace("git.lua.selection")
 local working_tree_id = "__git_lua_working_tree__"
+local ref_tabs = {
+  { label = "Local", short = "L", kind = "Local branches" },
+  { label = "Remote", short = "R", kind = "Remote branches" },
+  { label = "Tags", short = "T", kind = "Tags" },
+}
+local history_tabs = {
+  { label = "Graph", short = "G", mode = "commits" },
+  { label = "Reflog", short = "R", mode = "reflog" },
+}
+local extras_tabs = {
+  { label = "Worktrees", short = "W", items = "worktrees" },
+  { label = "Submodules", short = "S", items = "submodules" },
+}
+local icons = { branch = "", tag = "", folder = "" }
+
+local function icon_prefix(icon, checked_out)
+  return (checked_out and " ✓ " or "   ") .. icon .. " "
+end
 
 vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
 vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = "#596273", default = true })
 vim.api.nvim_set_hl(0, "GitLuaHiddenCursor", { blend = 100, default = true })
+vim.api.nvim_set_hl(0, "GitLuaActiveTab", { fg = "#d55bfa", bold = true, default = true })
+vim.api.nvim_set_hl(0, "GitLuaInactiveTab", { fg = "#89919e", default = true })
+vim.api.nvim_set_hl(0, "GitLuaCurrentBranch", { fg = "#d55bfa", bold = true, default = true })
 
 local function buffer()
   local result = vim.api.nvim_create_buf(false, true)
@@ -46,7 +67,12 @@ local function pane_configs(page, show_details)
   local row = math.max(1, math.floor((rows - height - 2) / 2))
   local widths = { left_width, center_width, right_width }
   local titles = page == "main"
-      and { " [1] Refs ", " [2] Commits ", " [3] Commit details ", " [4] Changed files " }
+      and {
+        " [1] Local · Remote · Tags ",
+        " [3] Graph · Reflog ",
+        " [4] Commit details ",
+        " [5] Changed files ",
+      }
     or { " [1] Files ", " [2] Before ", " [3] After " }
   local footers = page == "main"
       and { " Enter: history · a: all ", " R: reflog · +: more ", nil, " Enter: compare " }
@@ -70,6 +96,15 @@ local function pane_configs(page, show_details)
     column = column + width + 2
   end
   if page == "main" then
+    local refs_height = math.max(6, math.floor((height - 2) * 0.58))
+    configs[1].height = refs_height
+    configs[5] = vim.tbl_extend("force", configs[1], {
+      row = row + refs_height + 2,
+      height = height - 2 - refs_height,
+      title = " [2] Worktrees · Submodules ",
+    })
+    configs[5].footer = nil
+    configs[5].footer_pos = nil
     if show_details then
       local details_ratio = height < 28 and 0.60 or 0.42
       local details_height = math.max(6, math.floor((height - 2) * details_ratio))
@@ -87,7 +122,7 @@ local function pane_configs(page, show_details)
       configs[3].hide = true
       configs[4] = vim.tbl_extend("force", configs[3], {
         hide = false,
-        title = " [3] Changed files ",
+        title = " [4] Changed files ",
         footer = footers[4],
         footer_pos = "right",
       })
@@ -133,7 +168,7 @@ end
 local function update_cursor_visibility(state)
   local focused = vim.api.nvim_get_current_win()
   local on_git_list = state.page == "main"
-      and (focused == state.sidebar_window or focused == state.center_window or focused == state.detail_files_window)
+      and (focused == state.sidebar_window or focused == state.extras_window or focused == state.center_window or focused == state.detail_files_window)
     or state.page == "diff" and focused == state.files_window
   if on_git_list and not state.cursor_hidden then
     state.saved_guicursor = vim.o.guicursor
@@ -154,20 +189,32 @@ local function update_borders(state)
   for _, window in ipairs(state.windows or {}) do
     if vim.api.nvim_win_is_valid(window) then
       local group = focused == window and "GitLuaActiveBorder" or "GitLuaInactiveBorder"
-      vim.wo[window].winhighlight = "FloatBorder:"
+      local list_window = state.page == "main"
+          and (window == state.sidebar_window or window == state.extras_window or window == state.center_window or window == state.detail_files_window)
+        or state.page == "diff" and window == state.files_window
+      if list_window and window ~= state.center_window then
+        vim.wo[window].cursorline = focused == window
+      end
+      vim.wo[window].winhighlight = "NormalFloat:Normal,EndOfBuffer:Normal,FloatBorder:"
         .. group
         .. ",FloatTitle:"
         .. group
         .. ",FloatFooter:"
         .. group
+        .. (list_window and focused == window and ",CursorLine:Visual" or "")
     end
   end
   update_cursor_visibility(state)
 end
 
 local function focus_windows(state)
-  if state.page == "main" and not state.selected then
-    return { state.sidebar_window, state.center_window, state.detail_files_window }
+  if state.page == "main" then
+    local windows = { state.sidebar_window, state.extras_window, state.center_window }
+    if state.selected then
+      windows[#windows + 1] = state.detail_window
+    end
+    windows[#windows + 1] = state.detail_files_window
+    return windows
   end
   return state.windows
 end
@@ -213,6 +260,37 @@ local function set_title(window, index, label, footer)
     config.footer_pos = "right"
   end
   vim.api.nvim_win_set_config(window, config)
+end
+
+local function set_tabs_title(window, index, tabs, active, footer)
+  local width = vim.api.nvim_win_get_width(window) - 2
+  local prefix = string.format(" [%d]", index)
+  local names = vim.tbl_map(function(tab)
+    return tab.label
+  end, tabs)
+  if vim.fn.strdisplaywidth(prefix .. " " .. table.concat(names, " ") .. " ") > width then
+    names = vim.tbl_map(function(tab)
+      return tab.short
+    end, tabs)
+  end
+  local title = { { prefix, "FloatTitle" } }
+  if vim.fn.strdisplaywidth(prefix .. " " .. table.concat(names, " ") .. " ") > width then
+    title[#title + 1] = { " " .. short(tabs[active].label, width - #prefix - 1), "GitLuaActiveTab" }
+  else
+    for tab_index, name in ipairs(names) do
+      title[#title + 1] = {
+        " " .. name,
+        tab_index == active and "GitLuaActiveTab" or "GitLuaInactiveTab",
+      }
+    end
+    title[#title + 1] = { " ", "FloatTitle" }
+  end
+  vim.api.nvim_win_set_config(window, {
+    title = title,
+    title_pos = "left",
+    footer = short(footer, width),
+    footer_pos = "right",
+  })
 end
 
 window_options = function(window)
@@ -339,7 +417,7 @@ local function render_changed_files(state, content)
   style_details(state.detail_files_buffer, content)
   set_title(
     state.detail_files_window,
-    state.selected and 4 or 3,
+    state.selected and 5 or 4,
     string.format("Changed files (%d)", #state.detail_files)
   )
 end
@@ -394,7 +472,7 @@ local function show_commit(state, commit)
   end
   state.selected = commit
   update_right_layout(state)
-  set_title(state.detail_window, 3, "Commit details")
+  set_title(state.detail_window, 4, "Commit details")
   state.detail_request = (state.detail_request or 0) + 1
   local request = state.detail_request
   state.detail_files = {}
@@ -716,15 +794,11 @@ local function render_history(state)
       )
     end
   end
-  if state.mode == "reflog" then
-    set_title(state.center_window, 2, "Reflog", " C: commits · Enter: select ")
-  else
-    local title = width >= 80 and "Branch / Tag · Graph · Message" or "Commit graph"
-    if state.reference then
-      title = title .. " · " .. state.reference:gsub("^refs/", "")
-    end
-    set_title(state.center_window, 2, title, " R: reflog · +: more ")
-  end
+  local history_tab = state.mode == "reflog" and 2 or 1
+  local footer = state.reference and " " .. state.reference:gsub("^refs/", "") .. " "
+    or state.mode == "reflog" and " [: prev · ]: next · Enter: select "
+    or " [: prev · ]: next · +: more "
+  set_tabs_title(state.center_window, 3, history_tabs, history_tab, footer)
   update_selection_highlight(state)
 end
 
@@ -739,64 +813,28 @@ local function render_sidebar(state)
     "",
   }
   local headings = { 1 }
-  local ref_spans = {}
+  local current_branch_line
   state.sidebar_lines = {}
-  local sections = {
-    {
-      title = "Local branches",
-      short_title = "Local",
-      items = state.refs or {},
-      kind = "Local branches",
-    },
-    {
-      title = "Remote branches",
-      short_title = "Remote",
-      items = state.refs or {},
-      kind = "Remote branches",
-    },
-    { title = "Tags", short_title = "Tags", items = state.refs or {}, kind = "Tags" },
-    { title = "Worktrees", short_title = "Worktrees", items = state.worktrees or {} },
-    { title = "Submodules", short_title = "Submodules", items = state.submodules or {} },
-  }
-  for _, section in ipairs(sections) do
-    local count = 0
-    for _, item in ipairs(section.items) do
-      if not section.kind or item.kind == section.kind then
-        count = count + 1
-      end
+  local selected_tab = ref_tabs[state.ref_tab]
+  local items = vim.tbl_filter(function(item)
+    return item.kind == selected_tab.kind
+  end, state.refs or {})
+  local title = sidebar_width >= 24 and selected_tab.kind or selected_tab.label
+  output[#output + 1] = string.format(" %s (%d)", title, #items)
+  headings[#headings + 1] = #output
+  for _, item in ipairs(items) do
+    local current_branch = item.kind == "Local branches" and item.name == state.head
+    local icon = item.kind == "Tags" and icons.tag or icons.branch
+    local prefix = icon_prefix(icon, current_branch)
+    local name_width = sidebar_width - vim.fn.strdisplaywidth(prefix) - 1
+    output[#output + 1] = prefix .. short(item.name, name_width)
+    state.sidebar_lines[#output] = item
+    if current_branch then
+      current_branch_line = #output
     end
-    local title = sidebar_width >= 24 and section.title or section.short_title
-    output[#output + 1] = string.format(" %s (%d)", title, count)
-    headings[#headings + 1] = #output
-    for _, item in ipairs(section.items) do
-      if not section.kind or item.kind == section.kind then
-        local name = item.name or item.path
-        if section.title == "Worktrees" then
-          name = (item.branch or "detached") .. " · " .. vim.fs.basename(item.path)
-        elseif section.title == "Submodules" then
-          name = item.path .. " " .. (item.id or ""):sub(1, 7)
-        end
-        local color = state.commit_colors and state.commit_colors[item.id]
-        local marker = item.kind and "●" or " "
-        if item.kind == "Local branches" and item.name == state.head then
-          marker = "◆"
-        end
-        if section.title == "Worktrees" and item.path == state.root then
-          marker = "●"
-        elseif section.title == "Submodules" then
-          marker = item.state == " " and "○" or (item.state or "!")
-        end
-        output[#output + 1] = " " .. marker .. " " .. short(name or item.path, sidebar_width - 4)
-        state.sidebar_lines[#output] = item
-        if color then
-          ref_spans[#ref_spans + 1] = { line = #output, finish = #output[#output], color = color }
-        end
-      end
-    end
-    if count == 0 then
-      output[#output + 1] = "   —"
-    end
-    output[#output + 1] = ""
+  end
+  if #items == 0 then
+    output[#output + 1] = "   —"
   end
   lines(state.sidebar_buffer, output)
   vim.api.nvim_buf_clear_namespace(state.sidebar_buffer, graph_namespace, 0, -1)
@@ -810,16 +848,47 @@ local function render_sidebar(state)
       #output[line]
     )
   end
-  for _, span in ipairs(ref_spans) do
+  if current_branch_line then
     vim.api.nvim_buf_add_highlight(
       state.sidebar_buffer,
       graph_namespace,
-      graph.ref_highlight_group(span.color),
-      span.line - 1,
+      "GitLuaCurrentBranch",
+      current_branch_line - 1,
       1,
-      span.finish
+      #output[current_branch_line]
     )
   end
+  set_tabs_title(state.sidebar_window, 1, ref_tabs, state.ref_tab, " [: prev · ]: next · a: all ")
+end
+
+local function render_extras(state)
+  if not valid(state) or state.page ~= "main" or not state.extras_buffer then
+    return
+  end
+  local width = vim.api.nvim_win_get_width(state.extras_window)
+  local selected_tab = extras_tabs[state.extra_tab]
+  local items = state[selected_tab.items] or {}
+  local output = { string.format(" %s (%d)", selected_tab.label, #items) }
+  for _, item in ipairs(items) do
+    if selected_tab.items == "worktrees" then
+      local folder = short(vim.fs.basename(item.path), width - 4)
+      output[#output + 1] = " " .. icons.folder .. " " .. folder
+      local prefix = icon_prefix(icons.branch, false)
+      local name_width = width - vim.fn.strdisplaywidth(prefix) - 1
+      output[#output + 1] = prefix .. short(item.branch or "detached", name_width)
+    else
+      local name = item.path .. " " .. (item.id or ""):sub(1, 7)
+      local marker = item.state == " " and "○" or (item.state or "!")
+      output[#output + 1] = " " .. marker .. " " .. short(name, width - 4)
+    end
+  end
+  if #items == 0 then
+    output[#output + 1] = "   —"
+  end
+  lines(state.extras_buffer, output)
+  vim.api.nvim_buf_clear_namespace(state.extras_buffer, graph_namespace, 0, -1)
+  vim.api.nvim_buf_add_highlight(state.extras_buffer, graph_namespace, "Title", 0, 1, #output[1])
+  set_tabs_title(state.extras_window, 2, extras_tabs, state.extra_tab, " [: prev · ]: next ")
 end
 
 local function select_history(state)
@@ -905,11 +974,14 @@ local function set_mode(state, mode)
   state.mode = mode
   show_status(state)
   render_history(state)
+  vim.api.nvim_win_set_cursor(state.center_window, { 1, 0 })
+  update_selection_highlight(state)
 end
 
 local function main_maps(state)
   for _, target in ipairs({
     state.sidebar_buffer,
+    state.extras_buffer,
     state.center_buffer,
     state.detail_buffer,
     state.detail_files_buffer,
@@ -939,6 +1011,26 @@ local function main_maps(state)
     state.max_commits = 300
     M.refresh(state)
   end, "Show all refs")
+  for _, tab_key in ipairs({ { key = "[", offset = -1 }, { key = "]", offset = 1 } }) do
+    map(state.sidebar_buffer, tab_key.key, function()
+      state.ref_tab = (state.ref_tab - 1 + tab_key.offset) % #ref_tabs + 1
+      render_sidebar(state)
+      vim.api.nvim_win_set_cursor(state.sidebar_window, {
+        math.min(5, vim.api.nvim_buf_line_count(state.sidebar_buffer)),
+        0,
+      })
+    end, "Switch refs tab")
+    map(state.extras_buffer, tab_key.key, function()
+      state.extra_tab = (state.extra_tab - 1 + tab_key.offset) % #extras_tabs + 1
+      render_extras(state)
+      vim.api.nvim_win_set_cursor(state.extras_window, { 1, 0 })
+    end, "Switch worktree/submodule tab")
+    map(state.center_buffer, tab_key.key, function()
+      local active_tab = state.mode == history_tabs[1].mode and 1 or 2
+      local next_tab = (active_tab - 1 + tab_key.offset) % #history_tabs + 1
+      set_mode(state, history_tabs[next_tab].mode)
+    end, "Switch history tab")
+  end
   map(state.center_buffer, "<CR>", function()
     local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
     if state.mode == "commits" and line == state.load_more_line then
@@ -984,14 +1076,16 @@ local function main_layout(state)
   close_windows(state)
   state.center_buffer = buffer()
   state.sidebar_buffer = buffer()
+  state.extras_buffer = buffer()
   state.detail_buffer = buffer()
   state.detail_files_buffer = buffer()
-  state.sidebar_window, state.center_window, state.detail_window, state.detail_files_window =
+  state.sidebar_window, state.center_window, state.detail_window, state.detail_files_window, state.extras_window =
     open_windows(state, {
       state.sidebar_buffer,
       state.center_buffer,
       state.detail_buffer,
       state.detail_files_buffer,
+      state.extras_buffer,
     })
   for _, window in ipairs({ state.detail_window, state.detail_files_window }) do
     vim.wo[window].wrap = true
@@ -1014,6 +1108,7 @@ local function main_layout(state)
     end,
   })
   render_sidebar(state)
+  render_extras(state)
   render_history(state)
   show_status(state)
   vim.api.nvim_set_current_win(state.center_window)
@@ -1207,14 +1302,14 @@ function M.refresh(state)
     state.root,
     update(function(worktrees)
       state.worktrees = worktrees
-      render_sidebar(state)
+      render_extras(state)
     end)
   )
   data.submodules(
     state.root,
     update(function(submodules)
       state.submodules = submodules
-      render_sidebar(state)
+      render_extras(state)
     end)
   )
   data.reflog(
@@ -1289,6 +1384,8 @@ function M.open()
     tab = vim.api.nvim_get_current_tabpage(),
     anchor_window = vim.api.nvim_get_current_win(),
     mode = "commits",
+    ref_tab = 1,
+    extra_tab = 1,
     max_commits = 300,
     head = "",
     commits = {},
@@ -1316,16 +1413,17 @@ function M.open()
       end
       if state.page == "main" then
         render_sidebar(state)
+        render_extras(state)
         render_history(state)
         if state.selected and state.detail_content then
           render_detail_info(state, state.detail_content, state.detail_color)
         end
         if state.selected then
-          set_title(state.detail_window, 3, "Commit details")
+          set_title(state.detail_window, 4, "Commit details")
         end
         set_title(
           state.detail_files_window,
-          state.selected and 4 or 3,
+          state.selected and 5 or 4,
           string.format("Changed files (%d)", #state.detail_files)
         )
       else
