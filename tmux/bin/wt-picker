@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Render worktrees for Workspace. Direct invocations open its Worktrees tab.
+# Render worktrees for Workspace. Direct invocations open Workspace.
 #
 # Filtering is done here, not by fzf (--disabled + reload on every keystroke),
 # so results stay grouped under their repo header while you type. Each

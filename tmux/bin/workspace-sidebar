@@ -7,15 +7,6 @@ parking_session=_Workspace
 
 command=${1:-toggle}
 shift $(( $# > 0 ))
-tab=''
-if [[ $command == show ]]; then
-  tab=${1:-worktrees}
-  shift $(( $# > 0 ))
-  case $tab in
-    worktrees | accounts) ;;
-    *) print -u2 -- "알 수 없는 탭: $tab"; exit 2 ;;
-  esac
-fi
 client=${1:-}
 
 # Hooks and key bindings can arrive together. Serialize pane moves so a hide
@@ -43,6 +34,14 @@ move_sidebar() {
   [[ $(tmux display-message -p -t "$pane" '#{window_id}') == "$window" ]] && return 0
   # -d leaves focus on the destination's editor rather than the sidebar.
   tmux join-pane -dhbf -l 30% -s "$pane" -t "$window"
+}
+
+reset_search() {
+  local socket
+  socket=$(tmux show-options -pqv -t "$1" @workspace-socket) || return 0
+  [[ -n $socket ]] || return 0
+  curl --silent --fail --max-time 1 --unix-socket "$socket" \
+    -X POST --data-binary 'clear-query' http://localhost/ > /dev/null 2>&1 || true
 }
 
 hide_sidebar() {
@@ -83,6 +82,16 @@ if [[ -z $client ]]; then
 fi
 [[ -n $client ]] || { print -u2 -- 'Workspace는 연결된 tmux 클라이언트가 필요합니다.'; exit 1; }
 pane=$(find_sidebar "$client") || pane=''
+if [[ -n $pane && ( $command == toggle || $command == show ) ]]; then
+  if [[ $(tmux show-options -pqv -t "$pane" @workspace-version) != 2 ]]; then
+    was_visible=$(tmux show-options -pqv -t "$pane" @workspace-visible)
+    tmux kill-pane -t "$pane"
+    pane=''
+    if [[ $command == toggle && $was_visible == 1 ]]; then
+      exit 0
+    fi
+  fi
+fi
 
 case $command in
   follow) follow_sidebar "$client"; exit 0 ;;
@@ -96,6 +105,7 @@ case $command in
     ;;
   toggle)
     if [[ -n $pane && $(tmux show-options -pqv -t "$pane" @workspace-visible) == 1 ]]; then
+      reset_search "$pane"
       hide_sidebar "$pane"
       exit 0
     fi
@@ -111,18 +121,15 @@ fi
 if [[ -z $pane ]]; then
   pane=$(tmux split-window -hbf -l 30% -t "$window" \
     -e "WS_CLIENT=$client" -P -F '#{pane_id}' \
-    "exec ${(q)bin}/workspace --sidebar ${tab:-worktrees}")
+    "exec ${(q)bin}/workspace --sidebar")
   tmux set-option -p -t "$pane" @workspace-client "$client"
+  tmux set-option -p -t "$pane" @workspace-version 2
   tmux set-option -p -t "$pane" @workspace-visible 1
 else
+  if [[ $(tmux show-options -pqv -t "$pane" @workspace-visible) != 1 ]]; then
+    reset_search "$pane"
+  fi
   tmux set-option -p -t "$pane" @workspace-visible 1
   move_sidebar "$pane" "$window"
   tmux select-pane -t "$pane"
-  if [[ -n $tab && $(tmux show-options -pqv -t "$pane" @workspace-tab) != "$tab" ]]; then
-    socket=$(tmux show-options -pqv -t "$pane" @workspace-socket)
-    workspace=${(q)bin}/workspace
-    actions="execute-silent($workspace --set-tab $tab)+untrack-current+clear-query+reload-sync($workspace --render {q})+transform-header($workspace --header)+transform-footer($workspace --footer)+transform-prompt($workspace --prompt)+transform($workspace --input-action)"
-    curl --silent --show-error --fail --max-time 2 --unix-socket "$socket" \
-      -X POST --data-binary "$actions" http://localhost/ > /dev/null
-  fi
 fi
