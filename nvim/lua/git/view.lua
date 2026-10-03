@@ -5,10 +5,12 @@ local M = {}
 local current
 local window_options
 local graph_namespace = vim.api.nvim_create_namespace("git.lua.graph")
+local selection_namespace = vim.api.nvim_create_namespace("git.lua.selection")
 local working_tree_id = "__git_lua_working_tree__"
 
 vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
 vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = "#596273", default = true })
+vim.api.nvim_set_hl(0, "GitLuaHiddenCursor", { blend = 100, default = true })
 
 local function buffer()
   local result = vim.api.nvim_create_buf(false, true)
@@ -116,6 +118,34 @@ local function open_windows(state, buffers)
   return unpack(state.windows)
 end
 
+local function restore_cursor(state)
+  if not state.cursor_hidden then
+    return
+  end
+  if vim.o.guicursor == state.hidden_guicursor then
+    vim.o.guicursor = state.saved_guicursor
+  end
+  state.cursor_hidden = false
+  state.saved_guicursor = nil
+  state.hidden_guicursor = nil
+end
+
+local function update_cursor_visibility(state)
+  local focused = vim.api.nvim_get_current_win()
+  local on_git_list = state.page == "main"
+      and (focused == state.sidebar_window or focused == state.center_window or focused == state.detail_files_window)
+    or state.page == "diff" and focused == state.files_window
+  if on_git_list and not state.cursor_hidden then
+    state.saved_guicursor = vim.o.guicursor
+    state.hidden_guicursor = state.saved_guicursor == "" and "n:block-GitLuaHiddenCursor"
+      or state.saved_guicursor .. ",n:block-GitLuaHiddenCursor"
+    vim.o.guicursor = state.hidden_guicursor
+    state.cursor_hidden = true
+  elseif not on_git_list then
+    restore_cursor(state)
+  end
+end
+
 local function update_borders(state)
   if not valid(state) or state.transitioning then
     return
@@ -132,6 +162,7 @@ local function update_borders(state)
         .. group
     end
   end
+  update_cursor_visibility(state)
 end
 
 local function focus_windows(state)
@@ -507,6 +538,42 @@ local function working_tree_entry(state)
   }
 end
 
+local function update_selection_highlight(state)
+  if
+    not valid(state)
+    or state.page ~= "main"
+    or not vim.api.nvim_buf_is_valid(state.center_buffer)
+  then
+    return
+  end
+  vim.api.nvim_buf_clear_namespace(state.center_buffer, selection_namespace, 0, -1)
+  if state.mode ~= "commits" then
+    return
+  end
+  local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
+  local commit_line = line % 2 == 0 and line - 1 or line
+  local bridge = state.bridge_ranges and state.bridge_ranges[commit_line]
+  if bridge then
+    vim.api.nvim_buf_set_extmark(
+      state.center_buffer,
+      selection_namespace,
+      commit_line - 1,
+      bridge.start,
+      {
+        end_col = bridge.finish,
+        hl_group = graph.selected_highlight_group(bridge.color),
+        line_hl_group = graph.selected_line_highlight_group(bridge.color),
+        priority = 200,
+      }
+    )
+  else
+    vim.api.nvim_buf_set_extmark(state.center_buffer, selection_namespace, line - 1, 0, {
+      line_hl_group = "CursorLine",
+      priority = 200,
+    })
+  end
+end
+
 local function render_history(state)
   if not valid(state) or state.page ~= "main" or not state.center_buffer then
     return
@@ -599,6 +666,8 @@ local function render_history(state)
     end
   end
   lines(state.center_buffer, result)
+  vim.wo[state.center_window].cursorline = state.mode == "reflog"
+  state.bridge_ranges = bridge_ranges
   if state.selected and state.mode == "commits" then
     for line, entry in ipairs(state.history_lines) do
       if entry.id == state.selected.id then
@@ -656,6 +725,7 @@ local function render_history(state)
     end
     set_title(state.center_window, 2, title, " R: reflog · +: more ")
   end
+  update_selection_highlight(state)
 end
 
 local function render_sidebar(state)
@@ -824,6 +894,7 @@ local function move_history(state, offset)
     target_line = math.max(1, math.min(entry_count, current_line + offset))
   end
   vim.api.nvim_win_set_cursor(state.center_window, { target_line, 0 })
+  update_selection_highlight(state)
   preview_history(state)
 end
 
@@ -932,6 +1003,7 @@ local function main_layout(state)
     group = state.augroup,
     buffer = state.center_buffer,
     callback = function()
+      update_selection_highlight(state)
       state.cursor_request = (state.cursor_request or 0) + 1
       local request = state.cursor_request
       vim.defer_fn(function()
@@ -1184,6 +1256,7 @@ function M.close(state)
   if current ~= state then
     return
   end
+  restore_cursor(state)
   current = nil
   vim.api.nvim_del_augroup_by_id(state.augroup)
   close_windows(state)
@@ -1290,6 +1363,7 @@ function M.open()
     group = state.augroup,
     callback = function()
       if not vim.api.nvim_tabpage_is_valid(state.tab) then
+        restore_cursor(state)
         if current == state then
           current = nil
         end

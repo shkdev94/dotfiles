@@ -238,6 +238,8 @@ local function groups(color)
   local names = {
     line = "GitLuaGraph" .. suffix,
     row = "GitLuaBranchRow" .. suffix,
+    selected = "GitLuaBranchSelected" .. suffix,
+    selected_line = "GitLuaBranchSelectedLine" .. suffix,
     ref = "GitLuaBranchRef" .. suffix,
   }
   local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
@@ -245,6 +247,16 @@ local function groups(color)
   local foreground = tonumber(suffix, 16)
   vim.api.nvim_set_hl(0, names.line, { fg = color, default = true })
   vim.api.nvim_set_hl(0, names.row, { bg = tint(background, foreground, 0.16), default = true })
+  vim.api.nvim_set_hl(
+    0,
+    names.selected,
+    { bg = tint(background, foreground, 0.42), default = true }
+  )
+  vim.api.nvim_set_hl(
+    0,
+    names.selected_line,
+    { bg = tint(background, foreground, 0.10), default = true }
+  )
   vim.api.nvim_set_hl(0, names.ref, {
     fg = color,
     bg = tint(background, foreground, 0.32),
@@ -261,6 +273,14 @@ end
 
 function M.row_highlight_group(color)
   return groups(color).row
+end
+
+function M.selected_highlight_group(color)
+  return groups(color).selected
+end
+
+function M.selected_line_highlight_group(color)
+  return groups(color).selected_line
 end
 
 function M.ref_highlight_group(color)
