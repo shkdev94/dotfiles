@@ -6,6 +6,9 @@ local current
 local window_options
 local graph_namespace = vim.api.nvim_create_namespace("git.lua.graph")
 
+vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
+vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = "#596273", default = true })
+
 local function buffer()
   local result = vim.api.nvim_create_buf(false, true)
   vim.bo[result].bufhidden = "wipe"
@@ -27,7 +30,7 @@ end
 local function pane_configs(page)
   local columns = vim.o.columns
   local rows = vim.o.lines - vim.o.cmdheight - 1
-  if columns < 54 or rows < 12 then
+  if columns < 54 or rows < 20 then
     return nil
   end
   local outer_width = math.min(columns - 2, math.floor(columns * 0.96))
@@ -53,6 +56,16 @@ local function pane_configs(page)
     }
     column = column + width + 2
   end
+  if page == "main" then
+    local details_ratio = height < 28 and 0.60 or 0.42
+    local details_height = math.max(6, math.floor((height - 2) * details_ratio))
+    local files_height = height - 2 - details_height
+    configs[3].height = details_height
+    configs[4] = vim.tbl_extend("force", configs[3], {
+      row = row + details_height + 2,
+      height = files_height,
+    })
+  end
   return configs
 end
 
@@ -76,6 +89,19 @@ local function open_windows(state, buffers)
     state.windows[index] = window
   end
   return unpack(state.windows)
+end
+
+local function update_borders(state)
+  if not valid(state) or state.transitioning then
+    return
+  end
+  local focused = vim.api.nvim_get_current_win()
+  for _, window in ipairs(state.windows or {}) do
+    if vim.api.nvim_win_is_valid(window) then
+      local group = focused == window and "GitLuaActiveBorder" or "GitLuaInactiveBorder"
+      vim.wo[window].winhighlight = "FloatBorder:" .. group
+    end
+  end
 end
 
 local function short(text, width)
@@ -113,18 +139,20 @@ end
 local function common_maps(state, target)
   map(target, "<Tab>", function()
     local active = vim.api.nvim_get_current_win()
-    for index, window in ipairs(state.windows) do
+    local windows = state.windows
+    for index, window in ipairs(windows) do
       if window == active then
-        vim.api.nvim_set_current_win(state.windows[index % #state.windows + 1])
+        vim.api.nvim_set_current_win(windows[index % #windows + 1])
         return
       end
     end
   end, "Next Git pane")
   map(target, "<S-Tab>", function()
     local active = vim.api.nvim_get_current_win()
-    for index, window in ipairs(state.windows) do
+    local windows = state.windows
+    for index, window in ipairs(windows) do
       if window == active then
-        vim.api.nvim_set_current_win(state.windows[(index - 2) % #state.windows + 1])
+        vim.api.nvim_set_current_win(windows[(index - 2) % #windows + 1])
         return
       end
     end
@@ -164,6 +192,61 @@ local function style_details(target, content, color)
   end
 end
 
+local function wrap_line(line, width)
+  local wrapped = {}
+  local current = ""
+  for index = 0, vim.fn.strchars(line) - 1 do
+    local character = vim.fn.strcharpart(line, index, 1)
+    if current ~= "" and vim.fn.strdisplaywidth(current .. character) > width then
+      local prefix, suffix = current:match("^(.*%S)%s+(%S+)$")
+      if prefix and vim.fn.strdisplaywidth("  " .. suffix .. character) <= width then
+        wrapped[#wrapped + 1] = prefix
+        current = "  " .. suffix .. character
+      else
+        wrapped[#wrapped + 1] = current
+        current = "  " .. character
+      end
+    else
+      current = current .. character
+    end
+  end
+  wrapped[#wrapped + 1] = current
+  return wrapped
+end
+
+local function render_detail_info(state, content, color)
+  state.detail_content = content
+  state.detail_color = color
+  local width = math.max(4, vim.api.nvim_win_get_width(state.detail_window) - 2)
+  local height = vim.fn.getwininfo(state.detail_window)[1].height
+  local visible = {}
+  local overflow = false
+  for _, line in ipairs(content) do
+    for _, part in ipairs(wrap_line(line, width)) do
+      if #visible >= height then
+        overflow = true
+        break
+      end
+      visible[#visible + 1] = part
+    end
+    if overflow then
+      break
+    end
+  end
+  if overflow then
+    visible[#visible] = short(visible[#visible], width - 1) .. "…"
+  end
+  lines(state.detail_buffer, visible)
+  style_details(state.detail_buffer, visible, color)
+end
+
+local function render_changed_files(state, content)
+  lines(state.detail_files_buffer, content)
+  style_details(state.detail_files_buffer, content)
+  vim.wo[state.detail_files_window].winbar =
+    string.format(" Changed files (%d) · Enter: compare", #state.detail_files)
+end
+
 local function show_status(state)
   if not valid(state) or state.page ~= "main" then
     return
@@ -173,36 +256,45 @@ local function show_status(state)
   state.selected = nil
   state.detail_files = state.status or {}
   state.detail_lines = {}
-  local output = {
-    " Working tree · " .. (state.head ~= "" and state.head or "detached HEAD"),
-    " " .. state.root,
-    "",
-    " Changed files (Enter to compare)",
+  local info = {
+    " Working tree",
+    " Branch: " .. (state.head ~= "" and state.head or "detached HEAD"),
+    " " .. vim.fs.basename(state.root),
   }
-  state.detail_lines[4] = "files"
+  local file_lines = {}
+  local counts = {}
   for _, kind in ipairs({ "staged", "unstaged", "untracked" }) do
     local count = 0
-    for _, file in ipairs(state.detail_files) do
+    local first_index
+    for index, file in ipairs(state.detail_files) do
       if file.kind == kind then
         count = count + 1
+        first_index = first_index or index
       end
     end
+    counts[kind] = count
     if count > 0 then
-      output[#output + 1] = ""
-      output[#output + 1] = " " .. kind:upper() .. " (" .. count .. ")"
-      for index, file in ipairs(state.detail_files) do
-        if file.kind == kind then
-          output[#output + 1] = string.format("  %s  %s", file.status, file.path)
-          state.detail_lines[#output] = index
-        end
+      if #file_lines > 0 then
+        file_lines[#file_lines + 1] = ""
+      end
+      file_lines[#file_lines + 1] = " " .. kind:upper() .. " (" .. count .. ")"
+      state.detail_lines[#file_lines] = first_index
+    end
+    for index, file in ipairs(state.detail_files) do
+      if file.kind == kind then
+        file_lines[#file_lines + 1] = string.format("  %s  %s", file.status, file.path)
+        state.detail_lines[#file_lines] = index
       end
     end
   end
+  info[#info + 1] = ""
+  info[#info + 1] = string.format(" Staged %d · Unstaged %d", counts.staged, counts.unstaged)
+  info[#info + 1] = " Untracked " .. counts.untracked
   if #state.detail_files == 0 then
-    output[#output + 1] = "  Clean working tree"
+    file_lines[1] = " No changed files"
   end
-  lines(state.detail_buffer, output)
-  style_details(state.detail_buffer, output)
+  render_detail_info(state, info)
+  render_changed_files(state, file_lines)
 end
 
 local function show_commit(state, commit)
@@ -218,16 +310,18 @@ local function show_commit(state, commit)
   local branches = state.branch_cache[commit.id]
   local branch_error
   local color = state.commit_colors and state.commit_colors[commit.id]
+  local hash_width = math.min(12, math.max(7, vim.api.nvim_win_get_width(state.detail_window) - 10))
+  local display_hash = commit.id:sub(1, hash_width)
   local loading = {
-    " Commit " .. commit.id:sub(1, 12),
+    " Commit " .. display_hash,
     " Author: " .. (commit.author or ""),
     " Date: " .. (commit.date or ""),
     "",
     " Message",
     " Loading details…",
   }
-  lines(state.detail_buffer, loading)
-  style_details(state.detail_buffer, loading, color)
+  render_detail_info(state, loading, color)
+  render_changed_files(state, { " Loading changed files…" })
 
   local message, files
   local function render()
@@ -238,7 +332,7 @@ local function show_commit(state, commit)
       return
     end
     local output = {
-      " Commit " .. commit.id,
+      " Commit " .. display_hash,
       " Author: " .. (commit.author or ""),
       " Date: " .. (commit.date or ""),
       branch_error and " Branches: unavailable" or branches and string.format(
@@ -252,19 +346,20 @@ local function show_commit(state, commit)
     for _, line in ipairs(vim.split(vim.trim(message), "\n", { plain = true })) do
       output[#output + 1] = " " .. line
     end
-    output[#output + 1] = ""
-    output[#output + 1] = " Changed files (Enter to compare)"
-    state.detail_lines = { [#output] = "files" }
-    state.detail_files = files
-    for index, file in ipairs(files) do
-      output[#output + 1] = string.format("  %s  %s", file.status, file.path)
-      state.detail_lines[#output] = index
+    render_detail_info(state, output, color)
+    if state.detail_files ~= files then
+      state.detail_files = files
+      state.detail_lines = {}
+      local file_lines = {}
+      for index, file in ipairs(files) do
+        file_lines[#file_lines + 1] = string.format("  %s  %s", file.status, file.path)
+        state.detail_lines[#file_lines] = index
+      end
+      if #files == 0 then
+        file_lines[1] = " No file changes"
+      end
+      render_changed_files(state, file_lines)
     end
-    if #files == 0 then
-      output[#output + 1] = "  No file changes"
-    end
-    lines(state.detail_buffer, output)
-    style_details(state.detail_buffer, output, color)
   end
 
   data.commit_message(state.root, commit, function(error_message, result)
@@ -579,7 +674,12 @@ local function set_mode(state, mode)
 end
 
 local function main_maps(state)
-  for _, target in ipairs({ state.sidebar_buffer, state.center_buffer, state.detail_buffer }) do
+  for _, target in ipairs({
+    state.sidebar_buffer,
+    state.center_buffer,
+    state.detail_buffer,
+    state.detail_files_buffer,
+  }) do
     common_maps(state, target)
     map(target, "q", function()
       M.close(state)
@@ -624,11 +724,11 @@ local function main_maps(state)
     show_status(state)
   end, "Show working tree")
   map(state.detail_buffer, "<CR>", function()
-    local line = vim.api.nvim_win_get_cursor(state.detail_window)[1]
+    vim.api.nvim_set_current_win(state.detail_files_window)
+  end, "Focus changed files")
+  map(state.detail_files_buffer, "<CR>", function()
+    local line = vim.api.nvim_win_get_cursor(state.detail_files_window)[1]
     local file_index = state.detail_lines[line]
-    if file_index == "files" then
-      file_index = 1
-    end
     if type(file_index) == "number" then
       M.open_diff(state, file_index)
     end
@@ -641,14 +741,22 @@ local function main_layout(state)
   state.center_buffer = buffer()
   state.sidebar_buffer = buffer()
   state.detail_buffer = buffer()
-  state.sidebar_window, state.center_window, state.detail_window = open_windows(state, {
-    state.sidebar_buffer,
-    state.center_buffer,
-    state.detail_buffer,
-  })
+  state.detail_files_buffer = buffer()
+  state.sidebar_window, state.center_window, state.detail_window, state.detail_files_window =
+    open_windows(state, {
+      state.sidebar_buffer,
+      state.center_buffer,
+      state.detail_buffer,
+      state.detail_files_buffer,
+    })
+  for _, window in ipairs({ state.detail_window, state.detail_files_window }) do
+    vim.wo[window].wrap = true
+    vim.wo[window].linebreak = true
+    vim.wo[window].breakindent = true
+  end
   vim.wo[state.sidebar_window].winbar = " Refs · Enter: history · a: all"
   vim.wo[state.center_window].winbar = " Commits · R: reflog · C: commits · Enter: select"
-  vim.wo[state.detail_window].winbar = " Details · Enter: files"
+  vim.wo[state.detail_window].winbar = " Commit details"
   main_maps(state)
   vim.api.nvim_create_autocmd("CursorMoved", {
     group = state.augroup,
@@ -671,6 +779,7 @@ local function main_layout(state)
   render_history(state)
   show_status(state)
   vim.api.nvim_set_current_win(state.center_window)
+  update_borders(state)
 end
 
 local function diff_revisions(file)
@@ -783,6 +892,7 @@ function M.open_diff(state, file_index)
   end, "Compare file")
   render_diff(state, file_index)
   vim.api.nvim_set_current_win(state.files_window)
+  update_borders(state)
 end
 
 function M.back(state)
@@ -908,6 +1018,7 @@ function M.open()
     if vim.api.nvim_win_is_valid(window) then
       vim.api.nvim_set_current_win(window)
     end
+    update_borders(current)
     return
   end
   if not pane_configs("main") then
@@ -952,7 +1063,17 @@ function M.open()
       if state.page == "main" then
         render_sidebar(state)
         render_history(state)
+        if state.detail_content then
+          render_detail_info(state, state.detail_content, state.detail_color)
+        end
       end
+      update_borders(state)
+    end,
+  })
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = state.augroup,
+    callback = function()
+      update_borders(state)
     end,
   })
   vim.api.nvim_create_autocmd("WinClosed", {
