@@ -16,7 +16,7 @@ Neovim에서 실행하는 Pi는 `--tui-mode fullscreen`을 사용해 대화가 �
 - `<leader>pn` 또는 `:PiNew`: 새 세션
 - `<leader>ps`: 세션 사이드바로 이동
 - `<leader>pl`: 오른쪽 Pi 세션 창으로 이동
-- `<leader>pa` 또는 `:PiAsk`: 현재 위치나 선택 영역을 질문과 함께 Pi로 전송. Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
+- `<leader>pa` 또는 `:PiAsk`: Pi 화면을 열지 않고 질문 입력창만 띄운다. Enter를 누르면 현재 위치나 선택 영역을 선택 중인 세션으로 전송하고, 세션이 아직 실행 중이지 않다면 백그라운드에서 시작한다. Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
 - 사이드바에서 `1`–`9`: 해당 번호 세션 선택, `Enter`: 현재 행 열기, `n`: 새 세션, `[`·`]` 또는 세션 목록 위 마우스 휠: 목록 스크롤, `q`: 숨기기
 - Pi 터미널에서 `<C-\>s`: 사이드바로 이동, `<C-\>q`: float 숨기기
 

@@ -632,7 +632,9 @@ local function spawn(project, tab)
   local old_buf = tab.buf
   tab.buf = vim.api.nvim_create_buf(false, false)
   vim.bo[tab.buf].bufhidden = "hide"
-  vim.api.nvim_win_set_buf(project.terminal_win, tab.buf)
+  if is_window(project.terminal_win) then
+    vim.api.nvim_win_set_buf(project.terminal_win, tab.buf)
+  end
   local socket = start_socket(project, tab)
   local argv = { command, "--tui-mode", "fullscreen" }
   if tab.session_file and vim.fn.filereadable(tab.session_file) == 1 then
@@ -641,7 +643,7 @@ local function spawn(project, tab)
     vim.list_extend(argv, { "--session-id", tab.id })
   end
   vim.list_extend(argv, extension_argv)
-  local job = vim.api.nvim_win_call(project.terminal_win, function()
+  local job = vim.api.nvim_buf_call(tab.buf, function()
     return vim.fn.termopen(argv, {
       cwd = project.cwd,
       env = { PI_NVIM_SOCKET = socket },
@@ -958,7 +960,7 @@ local function start_spinner_timer(project)
   project.spinner_timer = timer
 end
 
-local function open(cwd)
+local function ensure_project(cwd)
   local project = projects[cwd]
   if not project then
     project = load(cwd)
@@ -968,6 +970,11 @@ local function open(cwd)
       add_tab(project)
     end
   end
+  return project
+end
+
+local function open(cwd)
+  local project = ensure_project(cwd)
   layout(project)
   start_git_timer(project)
   start_spinner_timer(project)
@@ -1063,20 +1070,27 @@ end
 function M.ask(command_range)
   local cwd = current_directory()
   local selection = context.capture(command_range)
-  local project = M.open(cwd)
-  if not project then
-    return
-  end
-  local tab = active_tab(project)
-  vim.ui.input({ prompt = "Pi에게 요청: " }, function(prompt)
+  vim.ui.input({ prompt = "Pi: " }, function(prompt)
     if not prompt or not prompt:match("%S") then
       return
     end
-    local message = selection .. "\n\n요청:\n" .. prompt
+    local message = prompt .. "\n\n" .. selection
     local payload = vim.json.encode({ type = "prompt", text = message })
     if #payload > 900000 then
       notify("선택 영역이 너무 커서 전송할 수 없습니다", vim.log.levels.ERROR)
       return
+    end
+    local project = ensure_project(cwd)
+    local tab = active_tab(project)
+    if not tab.job then
+      local ok, err = pcall(spawn, project, tab)
+      if not ok then
+        stop_socket(tab)
+        tab.status = "오류"
+        notify(tostring(err), vim.log.levels.ERROR)
+        render(project)
+        return
+      end
     end
     if tab.title:match("^새 세션") then
       tab.title = prompt:sub(1, 35)
