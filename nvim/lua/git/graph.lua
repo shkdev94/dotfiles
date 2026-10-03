@@ -59,7 +59,7 @@ function M.layout(commits)
     local lane_index = find_lane(lanes, commit.id)
     if not lane_index then
       lane_index = vacant_lane(lanes, 1)
-      lanes[lane_index] = { target = commit.id, color = color() }
+      lanes[lane_index] = { target = commit.id, color = color(), dotted = commit.working_tree }
     end
 
     local before = copy_lanes(lanes)
@@ -70,7 +70,12 @@ function M.layout(commits)
 
     for index, lane in ipairs(before) do
       if index ~= lane_index and lane.target then
-        edges[#edges + 1] = { from = index, to = index, color = lane.color }
+        edges[#edges + 1] = {
+          from = index,
+          to = index,
+          color = lane.color,
+          dotted = lane.dotted,
+        }
       end
     end
 
@@ -82,12 +87,14 @@ function M.layout(commits)
         after[destination] = {
           target = parent,
           color = destination == lane_index and current.color or color(),
+          dotted = commit.working_tree or false,
         }
       end
       edges[#edges + 1] = {
         from = lane_index,
         to = destination,
         color = parent_index == 1 and current.color or after[destination].color,
+        dotted = commit.working_tree or false,
       }
     end
 
@@ -147,7 +154,8 @@ function M.commit_line(row, width)
     local column = position(index)
     if lane.target and column <= width then
       cells[column] = {
-        symbol = index == row.lane and "●" or "│",
+        symbol = index == row.lane and (row.commit.working_tree and "◌" or "●")
+          or (lane.dotted and "┊" or "│"),
         color = lane.color,
       }
     end
@@ -184,6 +192,7 @@ function M.connector_line(row, width)
         local cell = cells[column]
         cell.mask = bit.bor(cell.mask or 0, direction)
         cell.color = edge.color
+        cell.dotted = edge.dotted
       end
 
       if source == destination then
@@ -201,6 +210,13 @@ function M.connector_line(row, width)
 
   for _, cell in ipairs(cells) do
     cell.symbol = glyphs[cell.mask or 0]
+    if cell.dotted then
+      if cell.symbol == "│" then
+        cell.symbol = "┊"
+      elseif cell.symbol == "─" then
+        cell.symbol = "┄"
+      end
+    end
   end
   return cells_to_text(cells)
 end

@@ -5,6 +5,7 @@ local M = {}
 local current
 local window_options
 local graph_namespace = vim.api.nvim_create_namespace("git.lua.graph")
+local working_tree_id = "__git_lua_working_tree__"
 
 vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
 vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = "#596273", default = true })
@@ -27,7 +28,7 @@ local function valid(state)
   return current == state and vim.api.nvim_tabpage_is_valid(state.tab)
 end
 
-local function pane_configs(page)
+local function pane_configs(page, show_details)
   local columns = vim.o.columns
   local rows = vim.o.lines - vim.o.cmdheight - 1
   if columns < 54 or rows < 20 then
@@ -42,6 +43,12 @@ local function pane_configs(page)
   local column = math.floor((columns - outer_width) / 2)
   local row = math.max(1, math.floor((rows - height - 2) / 2))
   local widths = { left_width, center_width, right_width }
+  local titles = page == "main"
+      and { " [1] Refs ", " [2] Commits ", " [3] Commit details ", " [4] Changed files " }
+    or { " [1] Files ", " [2] Before ", " [3] After " }
+  local footers = page == "main"
+      and { " Enter: history · a: all ", " R: reflog · +: more ", nil, " Enter: compare " }
+    or { " Enter: compare · q: back " }
   local configs = {}
   for index, width in ipairs(widths) do
     configs[index] = {
@@ -51,20 +58,38 @@ local function pane_configs(page)
       width = width,
       height = height,
       border = "rounded",
+      title = titles[index],
+      title_pos = "left",
+      footer = footers[index],
+      footer_pos = footers[index] and "right" or nil,
       style = "minimal",
       zindex = 50,
     }
     column = column + width + 2
   end
   if page == "main" then
-    local details_ratio = height < 28 and 0.60 or 0.42
-    local details_height = math.max(6, math.floor((height - 2) * details_ratio))
-    local files_height = height - 2 - details_height
-    configs[3].height = details_height
-    configs[4] = vim.tbl_extend("force", configs[3], {
-      row = row + details_height + 2,
-      height = files_height,
-    })
+    if show_details then
+      local details_ratio = height < 28 and 0.60 or 0.42
+      local details_height = math.max(6, math.floor((height - 2) * details_ratio))
+      local files_height = height - 2 - details_height
+      configs[3].height = details_height
+      configs[3].hide = false
+      configs[4] = vim.tbl_extend("force", configs[3], {
+        row = row + details_height + 2,
+        height = files_height,
+        title = titles[4],
+        footer = footers[4],
+        footer_pos = "right",
+      })
+    else
+      configs[3].hide = true
+      configs[4] = vim.tbl_extend("force", configs[3], {
+        hide = false,
+        title = " [3] Changed files ",
+        footer = footers[4],
+        footer_pos = "right",
+      })
+    end
   end
   return configs
 end
@@ -81,7 +106,7 @@ local function close_windows(state)
 end
 
 local function open_windows(state, buffers)
-  local configs = assert(pane_configs(state.page))
+  local configs = assert(pane_configs(state.page, state.selected ~= nil))
   state.windows = {}
   for index, target in ipairs(buffers) do
     local window = vim.api.nvim_open_win(target, index == 2, configs[index])
@@ -99,9 +124,34 @@ local function update_borders(state)
   for _, window in ipairs(state.windows or {}) do
     if vim.api.nvim_win_is_valid(window) then
       local group = focused == window and "GitLuaActiveBorder" or "GitLuaInactiveBorder"
-      vim.wo[window].winhighlight = "FloatBorder:" .. group
+      vim.wo[window].winhighlight = "FloatBorder:"
+        .. group
+        .. ",FloatTitle:"
+        .. group
+        .. ",FloatFooter:"
+        .. group
     end
   end
+end
+
+local function focus_windows(state)
+  if state.page == "main" and not state.selected then
+    return { state.sidebar_window, state.center_window, state.detail_files_window }
+  end
+  return state.windows
+end
+
+local function update_right_layout(state)
+  if not valid(state) or state.page ~= "main" then
+    return
+  end
+  if not state.selected and vim.api.nvim_get_current_win() == state.detail_window then
+    vim.api.nvim_set_current_win(state.detail_files_window)
+  end
+  local configs = assert(pane_configs("main", state.selected ~= nil))
+  vim.api.nvim_win_set_config(state.detail_window, configs[3])
+  vim.api.nvim_win_set_config(state.detail_files_window, configs[4])
+  update_borders(state)
 end
 
 local function short(text, width)
@@ -123,6 +173,17 @@ local function padded(text, width)
   return text .. string.rep(" ", math.max(0, width - vim.fn.strdisplaywidth(text)))
 end
 
+local function set_title(window, index, label, footer)
+  local width = vim.api.nvim_win_get_width(window)
+  local title = short(string.format(" [%d] %s ", index, label), width - 2)
+  local config = { title = title, title_pos = "left" }
+  if footer then
+    config.footer = short(footer, width - 2)
+    config.footer_pos = "right"
+  end
+  vim.api.nvim_win_set_config(window, config)
+end
+
 window_options = function(window)
   vim.wo[window].number = false
   vim.wo[window].relativenumber = false
@@ -139,7 +200,7 @@ end
 local function common_maps(state, target)
   map(target, "<Tab>", function()
     local active = vim.api.nvim_get_current_win()
-    local windows = state.windows
+    local windows = focus_windows(state)
     for index, window in ipairs(windows) do
       if window == active then
         vim.api.nvim_set_current_win(windows[index % #windows + 1])
@@ -149,7 +210,7 @@ local function common_maps(state, target)
   end, "Next Git pane")
   map(target, "<S-Tab>", function()
     local active = vim.api.nvim_get_current_win()
-    local windows = state.windows
+    local windows = focus_windows(state)
     for index, window in ipairs(windows) do
       if window == active then
         vim.api.nvim_set_current_win(windows[(index - 2) % #windows + 1])
@@ -243,8 +304,11 @@ end
 local function render_changed_files(state, content)
   lines(state.detail_files_buffer, content)
   style_details(state.detail_files_buffer, content)
-  vim.wo[state.detail_files_window].winbar =
-    string.format(" Changed files (%d) · Enter: compare", #state.detail_files)
+  set_title(
+    state.detail_files_window,
+    state.selected and 4 or 3,
+    string.format("Changed files (%d)", #state.detail_files)
+  )
 end
 
 local function show_status(state)
@@ -256,13 +320,12 @@ local function show_status(state)
   state.selected = nil
   state.detail_files = state.status or {}
   state.detail_lines = {}
-  local info = {
-    " Working tree",
-    " Branch: " .. (state.head ~= "" and state.head or "detached HEAD"),
-    " " .. vim.fs.basename(state.root),
-  }
+  state.detail_content = nil
+  state.detail_color = nil
+  update_right_layout(state)
+  lines(state.detail_buffer, { "" })
+  vim.api.nvim_buf_clear_namespace(state.detail_buffer, graph_namespace, 0, -1)
   local file_lines = {}
-  local counts = {}
   for _, kind in ipairs({ "staged", "unstaged", "untracked" }) do
     local count = 0
     local first_index
@@ -272,7 +335,6 @@ local function show_status(state)
         first_index = first_index or index
       end
     end
-    counts[kind] = count
     if count > 0 then
       if #file_lines > 0 then
         file_lines[#file_lines + 1] = ""
@@ -287,13 +349,9 @@ local function show_status(state)
       end
     end
   end
-  info[#info + 1] = ""
-  info[#info + 1] = string.format(" Staged %d · Unstaged %d", counts.staged, counts.unstaged)
-  info[#info + 1] = " Untracked " .. counts.untracked
   if #state.detail_files == 0 then
     file_lines[1] = " No changed files"
   end
-  render_detail_info(state, info)
   render_changed_files(state, file_lines)
 end
 
@@ -302,6 +360,8 @@ local function show_commit(state, commit)
     return
   end
   state.selected = commit
+  update_right_layout(state)
+  set_title(state.detail_window, 3, "Commit details")
   state.detail_request = (state.detail_request or 0) + 1
   local request = state.detail_request
   state.detail_files = {}
@@ -424,6 +484,27 @@ local function ref_summary(references)
   return label
 end
 
+local function working_tree_entry(state)
+  if #state.status == 0 or (state.reference and state.reference ~= "refs/heads/" .. state.head) then
+    return nil
+  end
+  local counts = { staged = 0, unstaged = 0, untracked = 0 }
+  for _, file in ipairs(state.status) do
+    counts[file.kind] = counts[file.kind] + 1
+  end
+  return {
+    id = working_tree_id,
+    parents = state.head_oid and { state.head_oid } or {},
+    working_tree = true,
+    subject = string.format(
+      "%d staged · %d unstaged · %d untracked",
+      counts.staged,
+      counts.unstaged,
+      counts.untracked
+    ),
+  }
+end
+
 local function render_history(state)
   if not valid(state) or state.page ~= "main" or not state.center_buffer then
     return
@@ -451,7 +532,13 @@ local function render_history(state)
       result[1] = " No reflog entries"
     end
   else
-    state.layout = graph.layout(state.commits or {})
+    local commits = {}
+    local pending = working_tree_entry(state)
+    if pending then
+      commits[1] = pending
+    end
+    vim.list_extend(commits, state.commits or {})
+    state.layout = graph.layout(commits)
     state.commit_colors = {}
     local label_width = width >= 80 and math.min(22, math.floor(width * 0.22)) or 0
     local graph_width = math.max(
@@ -476,13 +563,15 @@ local function render_history(state)
 
     for _, row in ipairs(state.layout.rows) do
       local commit = row.commit
-      local label = ref_summary(references[commit.id])
+      local label = commit.working_tree and "Working tree" or ref_summary(references[commit.id])
       state.commit_colors[commit.id] = row.color
-      local metadata = commit.id:sub(1, 7)
-      if width >= 72 then
-        metadata = metadata .. "  " .. padded(commit.author, 12) .. "  " .. commit.date:sub(1, 10)
-      elseif width >= 55 then
-        metadata = metadata .. "  " .. commit.date:sub(1, 10)
+      local metadata = commit.working_tree and "Uncommitted changes" or commit.id:sub(1, 7)
+      if not commit.working_tree then
+        if width >= 72 then
+          metadata = metadata .. "  " .. padded(commit.author, 12) .. "  " .. commit.date:sub(1, 10)
+        elseif width >= 55 then
+          metadata = metadata .. "  " .. commit.date:sub(1, 10)
+        end
       end
       if label and label_width == 0 then
         metadata = metadata .. "  [" .. label .. "]"
@@ -502,6 +591,14 @@ local function render_history(state)
     end
   end
   lines(state.center_buffer, result)
+  if state.selected and state.mode == "commits" then
+    for line, entry in ipairs(state.history_lines) do
+      if entry.id == state.selected.id then
+        vim.api.nvim_win_set_cursor(state.center_window, { line, 0 })
+        break
+      end
+    end
+  end
   vim.api.nvim_buf_clear_namespace(state.center_buffer, graph_namespace, 0, -1)
   for line, color in pairs(row_colors) do
     vim.api.nvim_buf_set_extmark(state.center_buffer, graph_namespace, line - 1, 0, {
@@ -531,13 +628,15 @@ local function render_history(state)
       )
     end
   end
-  vim.wo[state.center_window].winbar = state.mode == "reflog"
-      and " Reflog · C: commits · Enter: select"
-    or (
-      (width >= 80 and " Branch / Tag │ Graph │ Commit" or " Git graph")
-      .. (state.reference and (" · " .. state.reference:gsub("^refs/", "")) or "")
-      .. " · R: reflog · +: more · Enter: select"
-    )
+  if state.mode == "reflog" then
+    set_title(state.center_window, 2, "Reflog", " C: commits · Enter: select ")
+  else
+    local title = width >= 80 and "Branch / Tag · Graph · Commits" or "Commit graph"
+    if state.reference then
+      title = title .. " · " .. state.reference:gsub("^refs/", "")
+    end
+    set_title(state.center_window, 2, title, " R: reflog · +: more ")
+  end
 end
 
 local function render_sidebar(state)
@@ -641,7 +740,11 @@ local function select_history(state)
     return
   end
   if state.mode == "commits" then
-    show_commit(state, entry)
+    if entry.working_tree then
+      show_status(state)
+    else
+      show_commit(state, entry)
+    end
   else
     data.run(
       state.root,
@@ -754,9 +857,6 @@ local function main_layout(state)
     vim.wo[window].linebreak = true
     vim.wo[window].breakindent = true
   end
-  vim.wo[state.sidebar_window].winbar = " Refs · Enter: history · a: all"
-  vim.wo[state.center_window].winbar = " Commits · R: reflog · C: commits · Enter: select"
-  vim.wo[state.detail_window].winbar = " Commit details"
   main_maps(state)
   vim.api.nvim_create_autocmd("CursorMoved", {
     group = state.augroup,
@@ -768,8 +868,14 @@ local function main_layout(state)
         if valid(state) and state.page == "main" and state.cursor_request == request then
           local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
           local entry = state.history_lines[line]
-          if entry and (not state.selected or state.selected.id ~= entry.id) then
-            select_history(state)
+          if entry then
+            if entry.working_tree then
+              if state.selected then
+                show_status(state)
+              end
+            elseif not state.selected or state.selected.id ~= entry.id then
+              select_history(state)
+            end
           end
         end
       end, 120)
@@ -817,8 +923,8 @@ local function diff_content(state, file, request)
     end
     display(state.old_buffer, old_content)
     display(state.new_buffer, new_content)
-    vim.wo[state.old_window].winbar = " Before · " .. old_path:gsub("%%", "%%%%")
-    vim.wo[state.new_window].winbar = " After · " .. new_path:gsub("%%", "%%%%")
+    set_title(state.old_window, 2, "Before · " .. old_path)
+    set_title(state.new_window, 3, "After · " .. new_path)
     vim.api.nvim_win_call(state.old_window, function()
       vim.cmd("diffthis")
     end)
@@ -871,7 +977,7 @@ function M.open_diff(state, file_index)
     state.old_buffer,
     state.new_buffer,
   })
-  vim.wo[state.files_window].winbar = " Files · Enter: compare · q: back"
+  set_title(state.files_window, 1, string.format("Files (%d)", #state.detail_files))
   local file_lines = { " Changed files", "" }
   for _, file in ipairs(state.detail_files) do
     file_lines[#file_lines + 1] = string.format(" %s %s", file.status, file.path)
@@ -958,6 +1064,8 @@ function M.refresh(state)
     state.root,
     update(function(files)
       state.status = files
+      render_history(state)
+      render_sidebar(state)
       if not state.selected then
         show_status(state)
       end
@@ -991,12 +1099,25 @@ function M.refresh(state)
     { "branch", "--show-current" },
     update(function(head)
       state.head = vim.trim(head)
+      render_history(state)
       render_sidebar(state)
       if not state.selected then
         show_status(state)
       end
     end)
   )
+  data.run(state.root, { "rev-parse", "--verify", "HEAD" }, function(error_message, output)
+    if not valid(state) or state.refresh_request ~= request then
+      return
+    end
+    if error_message then
+      state.head_oid = nil
+    else
+      state.head_oid = vim.trim(output)
+    end
+    render_history(state)
+    render_sidebar(state)
+  end)
 end
 
 function M.close(state)
@@ -1050,7 +1171,7 @@ function M.open()
       if not valid(state) then
         return
       end
-      local configs = pane_configs(state.page)
+      local configs = pane_configs(state.page, state.selected ~= nil)
       if not configs then
         M.close(state)
         return
@@ -1063,8 +1184,23 @@ function M.open()
       if state.page == "main" then
         render_sidebar(state)
         render_history(state)
-        if state.detail_content then
+        if state.selected and state.detail_content then
           render_detail_info(state, state.detail_content, state.detail_color)
+        end
+        if state.selected then
+          set_title(state.detail_window, 3, "Commit details")
+        end
+        set_title(
+          state.detail_files_window,
+          state.selected and 4 or 3,
+          string.format("Changed files (%d)", #state.detail_files)
+        )
+      else
+        set_title(state.files_window, 1, string.format("Files (%d)", #state.detail_files))
+        local file = state.detail_files[state.diff_index]
+        if file then
+          set_title(state.old_window, 2, "Before · " .. (file.original_path or file.path))
+          set_title(state.new_window, 3, "After · " .. file.path)
         end
       end
       update_borders(state)

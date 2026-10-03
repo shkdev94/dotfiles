@@ -45,7 +45,17 @@ function M.commits(root, reference, limit, callback)
   end
   M.run(root, arguments, function(error_message, output)
     if error_message then
-      callback(error_message)
+      if reference then
+        callback(error_message)
+        return
+      end
+      M.run(root, { "rev-list", "--all", "--count" }, function(count_error, count_output)
+        if not count_error and tonumber(vim.trim(count_output)) == 0 then
+          callback(nil, {})
+        else
+          callback(error_message)
+        end
+      end)
       return
     end
     local commits = {}
@@ -199,7 +209,13 @@ function M.reflog(root, callback)
     { "reflog", "show", "-n", "100", "--format=%H%x1f%gd%x1f%gs%x1f%ci" },
     function(error_message, output)
       if error_message then
-        callback(error_message)
+        M.run(root, { "rev-parse", "--verify", "HEAD" }, function(head_error)
+          if head_error then
+            callback(nil, {})
+          else
+            callback(error_message)
+          end
+        end)
         return
       end
       local entries = {}
