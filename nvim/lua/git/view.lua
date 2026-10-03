@@ -198,6 +198,8 @@ local function map(target, key, callback, description)
 end
 
 local function common_maps(state, target)
+  map(target, "<Down>", "j", "Move down")
+  map(target, "<Up>", "k", "Move up")
   map(target, "<Tab>", function()
     local active = vim.api.nvim_get_current_win()
     local windows = focus_windows(state)
@@ -512,7 +514,8 @@ local function render_history(state)
   local width = vim.api.nvim_win_get_width(state.center_window)
   local result = {}
   local graph_spans = {}
-  local row_colors = {}
+  local bridge_ranges = {}
+  local accent_spans = {}
   local label_spans = {}
   state.history_lines = {}
   state.load_more_line = nil
@@ -545,9 +548,11 @@ local function render_history(state)
       6,
       math.min(34, state.layout.lanes * 3 + 2, math.floor((width - label_width) * 0.45))
     )
-    local content_width = math.max(1, width - label_width - graph_width - 2)
+    local separator = "   ▏ "
+    local content_width =
+      math.max(1, width - label_width - graph_width - vim.fn.strdisplaywidth(separator))
 
-    local function append(graph_text, spans, content, commit, color, label)
+    local function append(graph_text, spans, commit, color, label, is_commit_row)
       local line = #result + 1
       local prefix = string.rep(" ", label_width)
       if label and label_width > 0 then
@@ -555,9 +560,24 @@ local function render_history(state)
         prefix = " " .. padded(text, label_width - 1)
         label_spans[line] = { start = 1, finish = 1 + #text, color = color }
       end
-      result[line] = prefix .. graph_text .. "  " .. short(content, content_width)
+      if is_commit_row then
+        local message = commit.working_tree and ("Uncommitted changes · " .. commit.subject)
+          or commit.subject
+        result[line] = prefix .. graph_text .. separator .. short(message, content_width)
+        local node_start = graph_text:find(commit.working_tree and "◌" or "●", 1, true)
+        local stripe_start = #prefix + #graph_text + #"   "
+        if node_start then
+          bridge_ranges[line] = {
+            start = #prefix + node_start - 1,
+            finish = stripe_start + #"▏",
+            color = color,
+          }
+        end
+        accent_spans[line] = { start = stripe_start, finish = stripe_start + #"▏", color = color }
+      else
+        result[line] = prefix .. graph_text
+      end
       graph_spans[line] = { offset = #prefix, spans = spans }
-      row_colors[line] = color
       state.history_lines[line] = commit
     end
 
@@ -565,22 +585,10 @@ local function render_history(state)
       local commit = row.commit
       local label = commit.working_tree and "Working tree" or ref_summary(references[commit.id])
       state.commit_colors[commit.id] = row.color
-      local metadata = commit.working_tree and "Uncommitted changes" or commit.id:sub(1, 7)
-      if not commit.working_tree then
-        if width >= 72 then
-          metadata = metadata .. "  " .. padded(commit.author, 12) .. "  " .. commit.date:sub(1, 10)
-        elseif width >= 55 then
-          metadata = metadata .. "  " .. commit.date:sub(1, 10)
-        end
-      end
-      if label and label_width == 0 then
-        metadata = metadata .. "  [" .. label .. "]"
-      end
-
       local commit_text, commit_spans = graph.commit_line(row, graph_width)
-      append(commit_text, commit_spans, metadata, commit, row.color, label)
+      append(commit_text, commit_spans, commit, row.color, label, true)
       local connector_text, connector_spans = graph.connector_line(row, graph_width)
-      append(connector_text, connector_spans, commit.subject, commit, row.color)
+      append(connector_text, connector_spans, commit, row.color, nil, false)
     end
     if #(state.commits or {}) == state.max_commits then
       state.load_more_line = #result + 1
@@ -600,11 +608,22 @@ local function render_history(state)
     end
   end
   vim.api.nvim_buf_clear_namespace(state.center_buffer, graph_namespace, 0, -1)
-  for line, color in pairs(row_colors) do
-    vim.api.nvim_buf_set_extmark(state.center_buffer, graph_namespace, line - 1, 0, {
-      line_hl_group = graph.row_highlight_group(color),
+  for line, bridge in pairs(bridge_ranges) do
+    vim.api.nvim_buf_set_extmark(state.center_buffer, graph_namespace, line - 1, bridge.start, {
+      hl_group = graph.row_highlight_group(bridge.color),
+      end_col = bridge.finish,
       priority = 10,
     })
+  end
+  for line, accent in pairs(accent_spans) do
+    vim.api.nvim_buf_add_highlight(
+      state.center_buffer,
+      graph_namespace,
+      graph.highlight_group(accent.color),
+      line - 1,
+      accent.start,
+      accent.finish
+    )
   end
   for line, label in pairs(label_spans) do
     vim.api.nvim_buf_add_highlight(
@@ -631,7 +650,7 @@ local function render_history(state)
   if state.mode == "reflog" then
     set_title(state.center_window, 2, "Reflog", " C: commits · Enter: select ")
   else
-    local title = width >= 80 and "Branch / Tag · Graph · Commits" or "Commit graph"
+    local title = width >= 80 and "Branch / Tag · Graph · Message" or "Commit graph"
     if state.reference then
       title = title .. " · " .. state.reference:gsub("^refs/", "")
     end
@@ -767,6 +786,47 @@ local function select_history(state)
   end
 end
 
+local function preview_history(state)
+  local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
+  local entry = state.history_lines[line]
+  if not entry then
+    return
+  end
+  if entry.working_tree then
+    if state.selected then
+      show_status(state)
+    end
+  elseif not state.selected or state.selected.id ~= entry.id then
+    select_history(state)
+  end
+end
+
+local function move_history(state, offset)
+  if not valid(state) or state.page ~= "main" then
+    return
+  end
+  local current_line = vim.api.nvim_win_get_cursor(state.center_window)[1]
+  local target_line
+  if state.mode == "commits" then
+    local commit_count = state.layout and #state.layout.rows or 0
+    if commit_count == 0 then
+      return
+    end
+    local selectable_count = commit_count + (state.load_more_line and 1 or 0)
+    local current_index = math.floor((current_line + 1) / 2)
+    local target_index = math.max(1, math.min(selectable_count, current_index + offset))
+    target_line = target_index <= commit_count and target_index * 2 - 1 or state.load_more_line
+  else
+    local entry_count = #(state.reflog or {})
+    if entry_count == 0 then
+      return
+    end
+    target_line = math.max(1, math.min(entry_count, current_line + offset))
+  end
+  vim.api.nvim_win_set_cursor(state.center_window, { target_line, 0 })
+  preview_history(state)
+end
+
 local function set_mode(state, mode)
   if state.mode == mode then
     return
@@ -823,6 +883,16 @@ local function main_maps(state)
       M.refresh(state)
     end
   end, "Load more commits")
+  for _, movement in ipairs({
+    { key = "j", offset = 1 },
+    { key = "<Down>", offset = 1 },
+    { key = "k", offset = -1 },
+    { key = "<Up>", offset = -1 },
+  }) do
+    map(state.center_buffer, movement.key, function()
+      move_history(state, movement.offset * vim.v.count1)
+    end, "Move between Git entries")
+  end
   map(state.center_buffer, "<Esc>", function()
     show_status(state)
   end, "Show working tree")
@@ -866,17 +936,7 @@ local function main_layout(state)
       local request = state.cursor_request
       vim.defer_fn(function()
         if valid(state) and state.page == "main" and state.cursor_request == request then
-          local line = vim.api.nvim_win_get_cursor(state.center_window)[1]
-          local entry = state.history_lines[line]
-          if entry then
-            if entry.working_tree then
-              if state.selected then
-                show_status(state)
-              end
-            elseif not state.selected or state.selected.id ~= entry.id then
-              select_history(state)
-            end
-          end
+          preview_history(state)
         end
       end, 120)
     end,
