@@ -841,6 +841,28 @@ local function make_git(project)
   return buf
 end
 
+local function update_section_highlights()
+  local title = vim.api.nvim_get_hl(0, { name = "FloatTitle", link = false })
+  local border = vim.api.nvim_get_hl(0, { name = "FloatBorder", link = false })
+  local background = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+  vim.api.nvim_set_hl(0, "PiSectionBorder", {
+    fg = border.fg or background.fg,
+    bg = background.bg,
+  })
+  vim.api.nvim_set_hl(0, "PiSectionTitle", {
+    fg = title.fg or background.fg,
+    bg = background.bg,
+    bold = title.bold or title.cterm and title.cterm.bold,
+  })
+end
+
+local function section_title(index, name)
+  return {
+    { string.format("[%d]─", index), "PiSectionBorder" },
+    { name, "PiSectionTitle" },
+  }
+end
+
 local function layout(project)
   local columns = vim.o.columns
   local lines = vim.o.lines - vim.o.cmdheight - 1
@@ -850,16 +872,29 @@ local function layout(project)
   local total_width = math.min(math.floor(columns * 0.95), columns - 4)
   local height = math.min(math.floor(lines * 0.86), lines - 4) - 2
   local sidebar_height = math.max(5, math.min(15, math.floor((height - 2) * 0.48)))
-  local git_height = height - sidebar_height - 3
+  local git_height = height - sidebar_height - 2
   local sidebar_width = math.min(36, math.max(24, math.floor(total_width * 0.29)))
-  local terminal_width = total_width - sidebar_width - 5
+  local terminal_width = total_width - sidebar_width - 4
   local col = math.floor((columns - total_width) / 2)
   local row = math.floor((lines - height - 2) / 2)
   project.height = height
   project.session_height = sidebar_height
   project.git_height = git_height
   project.sidebar_width = sidebar_width
+  update_section_highlights()
 
+  local backdrop_config = {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = total_width,
+    height = height + 2,
+    style = "minimal",
+    border = "none",
+    focusable = false,
+    mouse = false,
+    zindex = 49,
+  }
   local sidebar_config = {
     relative = "editor",
     row = row,
@@ -868,58 +903,70 @@ local function layout(project)
     height = sidebar_height,
     style = "minimal",
     border = "rounded",
-    title = " Sessions ",
+    title = section_title(1, "Sessions"),
     zindex = 50,
   }
   local git_config = {
     relative = "editor",
-    row = row + sidebar_height + 3,
+    row = row + sidebar_height + 2,
     col = col,
     width = sidebar_width,
     height = git_height,
     style = "minimal",
     border = "rounded",
-    title = " Git ",
+    title = section_title(2, "Git"),
     zindex = 50,
   }
   local terminal_config = {
     relative = "editor",
     row = row,
-    col = col + sidebar_width + 3,
+    col = col + sidebar_width + 2,
     width = terminal_width,
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Session ",
+    title = section_title(3, "Session"),
     zindex = 50,
   }
   if
-    is_window(project.sidebar_win)
+    is_window(project.backdrop_win)
+    and is_window(project.sidebar_win)
     and is_window(project.git_win)
     and is_window(project.terminal_win)
   then
+    vim.api.nvim_win_set_config(project.backdrop_win, backdrop_config)
     vim.api.nvim_win_set_config(project.sidebar_win, sidebar_config)
     vim.api.nvim_win_set_config(project.git_win, git_config)
     vim.api.nvim_win_set_config(project.terminal_win, terminal_config)
   else
-    for _, key in ipairs({ "sidebar_win", "git_win", "terminal_win" }) do
+    for _, key in ipairs({ "backdrop_win", "sidebar_win", "git_win", "terminal_win" }) do
       if is_window(project[key]) then
         vim.api.nvim_win_close(project[key], true)
       end
     end
+    if not project.backdrop_buf or not vim.api.nvim_buf_is_valid(project.backdrop_buf) then
+      project.backdrop_buf = vim.api.nvim_create_buf(false, true)
+      vim.bo[project.backdrop_buf].bufhidden = "hide"
+    end
+    project.backdrop_win = vim.api.nvim_open_win(project.backdrop_buf, false, backdrop_config)
     project.sidebar_win = vim.api.nvim_open_win(make_sidebar(project), false, sidebar_config)
     project.git_win = vim.api.nvim_open_win(make_git(project), false, git_config)
     local tab = active_tab(project)
     local buffer = tab and tab.buf and vim.api.nvim_buf_is_valid(tab.buf) and tab.buf
       or vim.api.nvim_create_buf(false, true)
     project.terminal_win = vim.api.nvim_open_win(buffer, true, terminal_config)
+    vim.wo[project.backdrop_win].fillchars = "eob: "
+    vim.wo[project.backdrop_win].winhighlight = "Normal:Normal,EndOfBuffer:Normal"
     vim.wo[project.sidebar_win].number = false
     vim.wo[project.sidebar_win].cursorline = true
     vim.wo[project.sidebar_win].wrap = false
+    vim.wo[project.sidebar_win].winhighlight = "FloatBorder:PiSectionBorder"
     vim.wo[project.git_win].number = false
     vim.wo[project.git_win].wrap = false
+    vim.wo[project.git_win].winhighlight = "FloatBorder:PiSectionBorder"
     vim.wo[project.terminal_win].number = false
     vim.wo[project.terminal_win].signcolumn = "no"
+    vim.wo[project.terminal_win].winhighlight = "FloatBorder:PiSectionBorder"
   end
   render(project)
 end
@@ -1003,7 +1050,7 @@ function M.close(cwd)
   if not project then
     return
   end
-  for _, key in ipairs({ "sidebar_win", "git_win", "terminal_win" }) do
+  for _, key in ipairs({ "backdrop_win", "sidebar_win", "git_win", "terminal_win" }) do
     if is_window(project[key]) then
       vim.api.nvim_win_close(project[key], true)
     end
@@ -1107,6 +1154,10 @@ end
 
 function M.setup(options)
   command = options and options.command or "pi"
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("PiSectionColors", { clear = true }),
+    callback = update_section_highlights,
+  })
   vim.api.nvim_create_autocmd("WinClosed", {
     group = vim.api.nvim_create_augroup("PiFloatClose", { clear = true }),
     callback = function(event)
