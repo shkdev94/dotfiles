@@ -558,17 +558,36 @@ local function decorate(state)
   return references
 end
 
-local function ref_summary(references)
-  if not references or #references == 0 then
+local function commit_label(state, commit, references, width)
+  local count = references and #references or 0
+  local label, extra_refs
+  if state.head_loaded and commit.id == state.head_oid then
+    if state.head ~= "" then
+      label = "HEAD → " .. icons.branch .. " " .. state.head
+      extra_refs = count
+      for _, reference in ipairs(references or {}) do
+        if reference.kind == "Local branches" and reference.name == state.head then
+          extra_refs = extra_refs - 1
+          break
+        end
+      end
+    else
+      label = "HEAD @ " .. commit.id:sub(1, 7)
+      extra_refs = count
+    end
+  elseif count > 0 then
+    local first = references[1]
+    local icon = first.kind == "Tags" and icons.tag or icons.branch
+    label = icon .. " " .. first.name
+    extra_refs = count - 1
+  else
     return nil
   end
-  local first = references[1]
-  local icon = first.kind == "Tags" and icons.tag or icons.branch
-  local label = icon .. " " .. first.name
-  if #references > 1 then
-    label = label .. " +" .. (#references - 1)
+  local suffix = extra_refs > 0 and " +" .. extra_refs or ""
+  if width > 0 then
+    return short(label, width - vim.fn.strdisplaywidth(suffix)) .. suffix
   end
-  return label
+  return label .. suffix
 end
 
 local function working_tree_entry(state)
@@ -655,6 +674,14 @@ local function render_history(state)
       math.min(34, state.layout.lanes * 3 + 2, math.floor((width - label_width) * 0.45))
     )
     local separator = "   ▏ "
+    if label_width > 0 then
+      local min_message_width = 24
+      label_width = math.min(
+        36,
+        math.floor(width * 0.35),
+        width - graph_width - vim.fn.strdisplaywidth(separator) - min_message_width
+      )
+    end
 
     local function append(graph_text, spans, commit, color, label, is_commit_row)
       local line = #result + 1
@@ -697,7 +724,9 @@ local function render_history(state)
 
     for _, row in ipairs(state.layout.rows) do
       local commit = row.commit
-      local label = not commit.working_tree and ref_summary(references[commit.id]) or nil
+      local label = not commit.working_tree
+          and commit_label(state, commit, references[commit.id], label_width - 4)
+        or nil
       local connect_ref = label and label_width > 0
       local commit_text, commit_spans = graph.commit_line(row, graph_width, connect_ref)
       append(commit_text, commit_spans, commit, row.color, label, true)
@@ -1234,6 +1263,7 @@ function M.refresh(state)
   if not valid(state) then
     return
   end
+  state.head_loaded = false
   state.refresh_request = (state.refresh_request or 0) + 1
   local request = state.refresh_request
   local function update(callback)
@@ -1309,6 +1339,7 @@ function M.refresh(state)
     { "branch", "--show-current" },
     update(function(head)
       state.head = vim.trim(head)
+      state.head_loaded = true
       render_history(state)
       render_sidebar(state)
       if not state.selected then
@@ -1371,6 +1402,7 @@ function M.open()
     extra_tab = 1,
     max_commits = 300,
     head = "",
+    head_loaded = false,
     commits = {},
     status = {},
   }
