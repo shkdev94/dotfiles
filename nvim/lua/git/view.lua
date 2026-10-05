@@ -26,12 +26,31 @@ local function icon_prefix(icon, checked_out)
   return (checked_out and " ✓ " or " ") .. icon .. " "
 end
 
-vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = "#d55bfa", bold = true, default = true })
-vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = "#596273", default = true })
-vim.api.nvim_set_hl(0, "GitLuaHiddenCursor", { blend = 100, default = true })
-vim.api.nvim_set_hl(0, "GitLuaActiveTab", { fg = "#d55bfa", bold = true, default = true })
-vim.api.nvim_set_hl(0, "GitLuaInactiveTab", { fg = "#89919e", default = true })
-vim.api.nvim_set_hl(0, "GitLuaCurrentBranch", { fg = "#d55bfa", bold = true, default = true })
+local function theme_foreground(name, fallback)
+  return vim.api.nvim_get_hl(0, { name = name, link = false }).fg or fallback
+end
+
+local function set_theme_highlights()
+  local normal = theme_foreground("Normal", vim.o.background == "light" and 0x000000 or 0xffffff)
+  local accent = theme_foreground("DiagnosticHint", theme_foreground("Special", normal))
+  local muted = theme_foreground("Comment", normal)
+  local border = theme_foreground("FloatBorder", muted)
+  vim.api.nvim_set_hl(0, "GitLuaActiveBorder", { fg = accent, bold = true })
+  vim.api.nvim_set_hl(0, "GitLuaInactiveBorder", { fg = border })
+  vim.api.nvim_set_hl(0, "GitLuaHiddenCursor", { blend = 100 })
+  vim.api.nvim_set_hl(0, "GitLuaActiveTab", { fg = accent, bold = true })
+  vim.api.nvim_set_hl(0, "GitLuaInactiveTab", { fg = muted })
+  vim.api.nvim_set_hl(0, "GitLuaCurrentBranch", { fg = accent, bold = true })
+  vim.api.nvim_set_hl(0, "GitLuaStatusAdd", {
+    fg = theme_foreground("DiagnosticOk", theme_foreground("String", normal)),
+  })
+  vim.api.nvim_set_hl(0, "GitLuaStatusChange", {
+    fg = theme_foreground("DiagnosticWarn", theme_foreground("Type", normal)),
+  })
+  vim.api.nvim_set_hl(0, "GitLuaStatusDelete", {
+    fg = theme_foreground("DiagnosticError", theme_foreground("Identifier", normal)),
+  })
+end
 
 local function buffer()
   local result = vim.api.nvim_create_buf(false, true)
@@ -346,9 +365,9 @@ local function style_details(target, content)
       vim.api.nvim_buf_add_highlight(target, graph_namespace, "Title", index - 1, 1, #line)
     elseif line:match("^  [AMDRCU%?]  ") then
       local status = line:sub(3, 3)
-      local group = (status == "A" or status == "?") and "DiffAdd"
-        or status == "D" and "DiffDelete"
-        or "DiffChange"
+      local group = (status == "A" or status == "?") and "GitLuaStatusAdd"
+        or status == "D" and "GitLuaStatusDelete"
+        or "GitLuaStatusChange"
       vim.api.nvim_buf_add_highlight(target, graph_namespace, group, index - 1, 2, 3)
     end
   end
@@ -1375,6 +1394,7 @@ function M.close(state)
 end
 
 function M.open()
+  set_theme_highlights()
   if current and valid(current) then
     vim.api.nvim_set_current_tabpage(current.tab)
     local window = current.page == "diff" and current.files_window or current.center_window
@@ -1410,6 +1430,19 @@ function M.open()
   state.augroup = vim.api.nvim_create_augroup("GitLuaView", { clear = true })
   main_layout(state)
   M.refresh(state)
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = state.augroup,
+    callback = function()
+      if not valid(state) then
+        return
+      end
+      set_theme_highlights()
+      if state.page == "main" then
+        render_history(state)
+      end
+      update_borders(state)
+    end,
+  })
   vim.api.nvim_create_autocmd("VimResized", {
     group = state.augroup,
     callback = function()

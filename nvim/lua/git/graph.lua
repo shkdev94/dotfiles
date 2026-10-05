@@ -1,18 +1,42 @@
 local M = {}
 local bit = require("bit")
 
-local palette = {
-  "#a0dc65",
-  "#7b91ff",
-  "#ffc06b",
-  "#ff628c",
-  "#34b4ff",
-  "#d55bfa",
-  "#33d4bd",
-  "#ff8e6e",
+local palette_groups = {
+  { "DiagnosticOk", "String" },
+  { "Function", "Directory" },
+  { "DiagnosticWarn", "Type" },
+  { "DiagnosticError", "Identifier" },
+  { "DiagnosticInfo", "Constant" },
+  { "DiagnosticHint", "Statement" },
+  { "Number", "Float" },
+  { "Normal" },
 }
 
 local highlight_groups = {}
+
+local function palette()
+  local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+  local fallback = normal.fg or (vim.o.background == "light" and 0x000000 or 0xffffff)
+  local colors = {}
+  for _, groups in ipairs(palette_groups) do
+    local foreground
+    for _, name in ipairs(groups) do
+      foreground = vim.api.nvim_get_hl(0, { name = name, link = false }).fg
+      if foreground then
+        break
+      end
+    end
+    colors[#colors + 1] = string.format("#%06x", foreground or fallback)
+  end
+  return colors
+end
+
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("GitLuaGraphColors", { clear = true }),
+  callback = function()
+    highlight_groups = {}
+  end,
+})
 
 local function copy_lanes(lanes)
   local result = {}
@@ -49,10 +73,11 @@ function M.layout(commits)
   local rows = {}
   local next_color = 0
   local max_lanes = 0
+  local colors = palette()
 
   local function color()
     next_color = next_color + 1
-    return palette[(next_color - 1) % #palette + 1]
+    return colors[(next_color - 1) % #colors + 1]
   end
 
   for _, commit in ipairs(commits) do
@@ -260,17 +285,12 @@ local function groups(color)
   local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
   local background = normal.bg or (vim.o.background == "light" and 0xffffff or 0x1e1e1e)
   local foreground = tonumber(suffix, 16)
-  vim.api.nvim_set_hl(0, names.line, { fg = color, default = true })
-  vim.api.nvim_set_hl(0, names.row, { bg = tint(background, foreground, 0.16), default = true })
-  vim.api.nvim_set_hl(
-    0,
-    names.selected,
-    { bg = tint(background, foreground, 0.42), default = true }
-  )
+  vim.api.nvim_set_hl(0, names.line, { fg = color })
+  vim.api.nvim_set_hl(0, names.row, { bg = tint(background, foreground, 0.16) })
+  vim.api.nvim_set_hl(0, names.selected, { bg = tint(background, foreground, 0.42) })
   vim.api.nvim_set_hl(0, names.ref, {
     fg = color,
     bold = true,
-    default = true,
   })
   highlight_groups[color] = names
   return names
