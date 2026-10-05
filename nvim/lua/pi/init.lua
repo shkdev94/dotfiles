@@ -1,6 +1,5 @@
 local uv = vim.uv
 local context = require("pi.context")
-local git = require("pi.git")
 
 local M = {}
 local projects = {}
@@ -64,9 +63,7 @@ local function load(cwd)
     cwd = cwd,
     tabs = {},
     selected_id = nil,
-    session_scroll = 0,
     frame_index = 1,
-    git = git.parse(""),
   }
   local path = state_path(cwd)
   if vim.fn.filereadable(path) == 0 then
@@ -135,46 +132,22 @@ local function is_window(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
 
-local function session_rows(project)
-  return math.min(9, math.max(1, project.session_height - 4))
-end
-
-local function truncate(text, width)
-  if vim.fn.strdisplaywidth(text) <= width then
-    return text
+local function truncate(value, width)
+  if vim.fn.strdisplaywidth(value) <= width then
+    return value
   end
   if width <= 1 then
     return "…"
   end
   local result = ""
-  for index = 0, vim.fn.strchars(text) - 1 do
-    local char = vim.fn.strcharpart(text, index, 1)
+  for index = 0, vim.fn.strchars(value) - 1 do
+    local char = vim.fn.strcharpart(value, index, 1)
     if vim.fn.strdisplaywidth(result .. char .. "…") > width then
       break
     end
     result = result .. char
   end
   return result .. "…"
-end
-
-local function git_header(project)
-  local prefix = " "
-  local suffix = string.format(" · %d uncommitted", #project.git.files)
-  if vim.fn.strdisplaywidth(prefix .. "…" .. suffix) > project.sidebar_width then
-    suffix = string.format(" · %d", #project.git.files)
-  end
-  local branch_width = project.sidebar_width - vim.fn.strdisplaywidth(prefix .. suffix)
-  return prefix .. truncate(project.git.branch, branch_width) .. suffix
-end
-
-local function status_highlight(code)
-  if code == "A" or code == "?" then
-    return "DiagnosticOk"
-  end
-  if code == "D" then
-    return "DiagnosticError"
-  end
-  return "DiagnosticWarn"
 end
 
 local function session_status(tab, frame)
@@ -203,214 +176,90 @@ local function session_status(tab, frame)
   return "○ 대기", "Comment"
 end
 
-local function session_line(tab, number, width, number_width, frame)
-  local status, highlight = session_status(tab, frame)
-  local prefix = string.format(" %" .. number_width .. "d. ", number)
-  local title_width = math.max(1, width - vim.fn.strdisplaywidth(prefix .. status) - 1)
-  local left = prefix .. truncate(tab.title, title_width)
-  local spacing = math.max(1, width - vim.fn.strdisplaywidth(left .. status))
-  return left .. string.rep(" ", spacing) .. status,
-    #left + spacing,
-    highlight,
-    assert(prefix:find("%d")) - 1,
-    #prefix - 1
-end
+local title_status_groups = {
+  DiagnosticInfo = "PiStatusInfo",
+  DiagnosticWarn = "PiStatusWarn",
+  DiagnosticError = "PiStatusError",
+  DiagnosticOk = "PiStatusOk",
+  Comment = "PiSectionBorder",
+}
 
-local function render_sessions(project)
-  if not project.sidebar_buf or not vim.api.nvim_buf_is_valid(project.sidebar_buf) then
-    return
-  end
-  local height = project.session_height
-  local size = session_rows(project)
-  local selected = active_tab(project)
-  local frame = spinner_frames[project.frame_index]
-  project.session_scroll =
-    math.max(0, math.min(project.session_scroll, math.max(0, #project.tabs - size)))
-
-  local lines = {}
-  for index = 1, height do
-    lines[index] = ""
-  end
-  lines[1] = " " .. truncate(vim.fn.fnamemodify(project.cwd, ":~"), project.sidebar_width - 2)
-  local start = project.session_scroll
-  local visible_sessions = math.min(size, #project.tabs - start)
-  local session_first_line = 3
-  local number_width = #tostring(#project.tabs)
-  local badges = {}
-  for index = 1, visible_sessions do
-    local tab = project.tabs[start + index]
-    local line = session_first_line + index - 1
-    local text, status_col, highlight, number_start, number_end =
-      session_line(tab, start + index, project.sidebar_width, number_width, frame)
-    lines[line] = text
-    badges[#badges + 1] = {
-      line = line,
-      col = status_col,
-      width = #text - status_col,
-      highlight = highlight,
-      number_start = number_start,
-      number_end = number_end,
-      number_highlight = tab == selected and "CursorLineNr" or "LineNr",
+local function session_title(project, width)
+  local prefix_width = vim.fn.strdisplaywidth("[1]─Session  ")
+  local available = math.max(1, width - prefix_width - 2)
+  local selected_index = 1
+  local items = {}
+  for index, tab in ipairs(project.tabs) do
+    if tab.id == project.selected_id then
+      selected_index = index
+    end
+    local status, highlight = session_status(tab, spinner_frames[project.frame_index])
+    local number = string.format("%d. ", index)
+    local title_width =
+      math.max(1, math.min(22, available - vim.fn.strdisplaywidth(number .. " " .. status) - 4))
+    local label = number .. truncate(tab.title, title_width)
+    items[index] = {
+      label = label,
+      status = " " .. status,
+      status_group = title_status_groups[highlight],
+      width = vim.fn.strdisplaywidth(label .. " " .. status),
     }
   end
-  local action_line = session_first_line + visible_sessions
-  lines[action_line] = " + 새 세션"
-  if #project.tabs > size then
-    lines[height] = string.format(" %d–%d/%d", start + 1, start + visible_sessions, #project.tabs)
-  end
-  project.session_first_line = session_first_line
-  project.session_last_line = session_first_line + size - 1
-  project.visible_session_count = visible_sessions
-  project.new_session_line = action_line
 
-  vim.bo[project.sidebar_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(project.sidebar_buf, 0, -1, false, lines)
-  vim.bo[project.sidebar_buf].modifiable = false
-  vim.api.nvim_buf_clear_namespace(project.sidebar_buf, project.namespace, 0, -1)
-  vim.api.nvim_buf_add_highlight(project.sidebar_buf, project.namespace, "Title", 0, 0, -1)
-  vim.api.nvim_buf_add_highlight(
-    project.sidebar_buf,
-    project.namespace,
-    "Directory",
-    action_line - 1,
-    0,
-    -1
-  )
-  if #project.tabs > size then
-    vim.api.nvim_buf_add_highlight(
-      project.sidebar_buf,
-      project.namespace,
-      "Comment",
-      height - 1,
-      0,
-      -1
-    )
-  end
-  for index = 1, visible_sessions do
-    local tab = project.tabs[start + index]
-    if tab and tab == selected then
-      vim.api.nvim_buf_add_highlight(
-        project.sidebar_buf,
-        project.namespace,
-        "Visual",
-        session_first_line + index - 2,
-        0,
-        -1
-      )
+  local function range_width(first, last)
+    local used = (first > 1 and 2 or 0) + (last < #items and 2 or 0)
+    for index = first, last do
+      used = used + items[index].width + (index > first and 3 or 0)
     end
-  end
-  for _, badge in ipairs(badges) do
-    vim.api.nvim_buf_add_highlight(
-      project.sidebar_buf,
-      project.namespace,
-      badge.number_highlight,
-      badge.line - 1,
-      badge.number_start,
-      badge.number_end
-    )
-    vim.api.nvim_buf_add_highlight(
-      project.sidebar_buf,
-      project.namespace,
-      badge.highlight,
-      badge.line - 1,
-      badge.col,
-      badge.col + badge.width
-    )
-  end
-end
-
-local function render_git(project)
-  if not project.git_buf or not vim.api.nvim_buf_is_valid(project.git_buf) then
-    return
-  end
-  local height = project.git_height
-  local lines = {}
-  for index = 1, height do
-    lines[index] = ""
-  end
-  lines[1] = git_header(project)
-  lines[2] = string.format(" %d staged", #project.git.staged)
-  local file_slots = math.max(0, height - 3)
-  local staged_visible = math.min(#project.git.staged, math.ceil(file_slots / 2))
-  local unstaged_visible = math.min(#project.git.unstaged, file_slots - staged_visible)
-  staged_visible = math.min(#project.git.staged, file_slots - unstaged_visible)
-  for index = 1, staged_visible do
-    local file = project.git.staged[index]
-    lines[2 + index] = string.format("  %s %s", file.code, file.path)
-  end
-  local unstaged_line = 3 + staged_visible
-  lines[unstaged_line] = string.format(" %d unstaged", #project.git.unstaged)
-  for index = 1, unstaged_visible do
-    local file = project.git.unstaged[index]
-    lines[unstaged_line + index] = string.format("  %s %s", file.code, file.path)
+    return used
   end
 
-  vim.bo[project.git_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(project.git_buf, 0, -1, false, lines)
-  vim.bo[project.git_buf].modifiable = false
-  vim.api.nvim_buf_clear_namespace(project.git_buf, project.namespace, 0, -1)
-  vim.api.nvim_buf_add_highlight(project.git_buf, project.namespace, "Title", 0, 0, -1)
-  vim.api.nvim_buf_add_highlight(project.git_buf, project.namespace, "Directory", 1, 0, -1)
-  vim.api.nvim_buf_add_highlight(
-    project.git_buf,
-    project.namespace,
-    "Directory",
-    unstaged_line - 1,
-    0,
-    -1
-  )
-  for index = 1, staged_visible do
-    local file = project.git.staged[index]
-    vim.api.nvim_buf_add_highlight(
-      project.git_buf,
-      project.namespace,
-      status_highlight(file.code),
-      1 + index,
-      2,
-      3
-    )
+  local first = 1
+  while first < selected_index and range_width(first, selected_index) > available do
+    first = first + 1
   end
-  for index = 1, unstaged_visible do
-    local file = project.git.unstaged[index]
-    vim.api.nvim_buf_add_highlight(
-      project.git_buf,
-      project.namespace,
-      status_highlight(file.code),
-      unstaged_line + index - 1,
-      2,
-      3
-    )
+  local last = selected_index
+  while last < #items and range_width(first, last + 1) <= available do
+    last = last + 1
   end
+  while first > 1 and range_width(first - 1, last) <= available do
+    first = first - 1
+  end
+
+  local title = {
+    { "[1]─", "PiSectionBorder" },
+    { "Session", "PiSectionTitle" },
+    { "  ", "PiSectionBorder" },
+  }
+  if first > 1 then
+    title[#title + 1] = { "‹ ", "PiSectionBorder" }
+  end
+  for index = first, last do
+    if index > first then
+      title[#title + 1] = { " · ", "PiSectionBorder" }
+    end
+    local item = items[index]
+    title[#title + 1] = {
+      item.label,
+      index == selected_index and "PiSectionTitle" or "PiSectionBorder",
+    }
+    title[#title + 1] = { item.status, item.status_group }
+  end
+  if last < #items then
+    title[#title + 1] = { " ›", "PiSectionBorder" }
+  end
+  return title
 end
 
 local function render(project)
-  render_sessions(project)
-  render_git(project)
-end
-
-local function scroll_sessions(project, amount)
-  local maximum = math.max(0, #project.tabs - session_rows(project))
-  local position = math.max(0, math.min(maximum, project.session_scroll + amount))
-  if position ~= project.session_scroll then
-    project.session_scroll = position
-    render(project)
+  if not is_window(project.terminal_win) then
+    return
   end
-end
-
-local function refresh_git(project)
-  vim.system(
-    { "git", "status", "--porcelain=v1", "--branch", "--untracked-files=all" },
-    { cwd = project.cwd, text = true },
-    function(result)
-      vim.schedule(function()
-        if not projects[project.cwd] then
-          return
-        end
-        project.git = result.code == 0 and git.parse(result.stdout or "") or git.parse("")
-        render(project)
-      end)
-    end
-  )
+  local width = vim.api.nvim_win_get_width(project.terminal_win)
+  vim.api.nvim_win_set_config(project.terminal_win, {
+    title = session_title(project, width),
+    title_pos = "left",
+  })
 end
 
 local function socket_path()
@@ -670,8 +519,15 @@ local function spawn(project, tab)
     vim.api.nvim_buf_delete(old_buf, { force = true })
   end
   vim.keymap.set("t", "<C-\\>s", function()
-    vim.api.nvim_set_current_win(project.sidebar_win)
-  end, { buffer = tab.buf, desc = "Pi 세션 목록" })
+    vim.cmd("stopinsert")
+    M.sessions(project.cwd)
+  end, { buffer = tab.buf, desc = "Pi 세션 선택" })
+  vim.keymap.set("t", "<C-\\>[", function()
+    M.cycle(-1, project.cwd)
+  end, { buffer = tab.buf, desc = "이전 Pi 세션" })
+  vim.keymap.set("t", "<C-\\>]", function()
+    M.cycle(1, project.cwd)
+  end, { buffer = tab.buf, desc = "다음 Pi 세션" })
   vim.keymap.set("t", "<C-\\>q", function()
     M.close(project.cwd)
   end, { buffer = tab.buf, desc = "Pi 화면 숨기기" })
@@ -688,11 +544,6 @@ function M.select(index, cwd)
   end
   project.selected_id = tab.id
   tab.unread = false
-  if index <= project.session_scroll then
-    project.session_scroll = index - 1
-  elseif index > project.session_scroll + session_rows(project) then
-    project.session_scroll = index - session_rows(project)
-  end
   save(project)
   if tab.job and tab.buf and vim.api.nvim_buf_is_valid(tab.buf) then
     vim.api.nvim_win_set_buf(project.terminal_win, tab.buf)
@@ -708,139 +559,6 @@ function M.select(index, cwd)
   focus_terminal(project)
 end
 
-local function sidebar_choice(project)
-  local line = vim.api.nvim_win_get_cursor(project.sidebar_win)[1]
-  if line == project.new_session_line then
-    add_tab(project)
-    M.select(#project.tabs, project.cwd)
-    return
-  end
-  local number = line - project.session_first_line + 1
-  if number >= 1 and number <= project.visible_session_count then
-    M.select(project.session_scroll + number, project.cwd)
-  end
-end
-
-local function make_sidebar(project)
-  if project.sidebar_buf and vim.api.nvim_buf_is_valid(project.sidebar_buf) then
-    return project.sidebar_buf
-  end
-  local buf = vim.api.nvim_create_buf(false, true)
-  project.sidebar_buf = buf
-  vim.bo[buf].bufhidden = "hide"
-  vim.bo[buf].filetype = "pi"
-  vim.bo[buf].modifiable = false
-  local map = function(key, callback)
-    vim.keymap.set("n", key, callback, { buffer = buf, nowait = true, silent = true })
-  end
-  map("<CR>", function()
-    sidebar_choice(project)
-  end)
-  map("<LeftMouse>", function()
-    local mouse = vim.fn.getmousepos()
-    if mouse.winid == project.sidebar_win then
-      vim.api.nvim_win_set_cursor(project.sidebar_win, { mouse.line, 0 })
-      sidebar_choice(project)
-    elseif mouse.winid == project.terminal_win then
-      focus_terminal(project)
-    elseif mouse.winid ~= 0 and is_window(mouse.winid) then
-      vim.api.nvim_set_current_win(mouse.winid)
-      if mouse.line > 0 and mouse.column > 0 then
-        vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, mouse.column - 1 })
-      end
-    end
-  end)
-  map("<Tab>", function()
-    focus_terminal(project)
-  end)
-  map("<C-w>l", function()
-    focus_terminal(project)
-  end)
-  map("<C-w><C-l>", function()
-    focus_terminal(project)
-  end)
-  map("n", function()
-    add_tab(project)
-    M.select(#project.tabs, project.cwd)
-  end)
-  map("q", function()
-    M.close(project.cwd)
-  end)
-  for digit = 1, 9 do
-    map(tostring(digit), function()
-      M.select(digit, project.cwd)
-    end)
-  end
-  map("[", function()
-    scroll_sessions(project, -1)
-  end)
-  map("]", function()
-    scroll_sessions(project, 1)
-  end)
-  map("<ScrollWheelUp>", function()
-    local mouse = vim.fn.getmousepos()
-    if
-      mouse.winid == project.sidebar_win
-      and mouse.line >= project.session_first_line
-      and mouse.line <= project.session_last_line
-    then
-      scroll_sessions(project, -3)
-    end
-  end)
-  map("<ScrollWheelDown>", function()
-    local mouse = vim.fn.getmousepos()
-    if
-      mouse.winid == project.sidebar_win
-      and mouse.line >= project.session_first_line
-      and mouse.line <= project.session_last_line
-    then
-      scroll_sessions(project, 3)
-    end
-  end)
-  return buf
-end
-
-local function make_git(project)
-  if project.git_buf and vim.api.nvim_buf_is_valid(project.git_buf) then
-    return project.git_buf
-  end
-  local buf = vim.api.nvim_create_buf(false, true)
-  project.git_buf = buf
-  vim.bo[buf].bufhidden = "hide"
-  vim.bo[buf].filetype = "pi"
-  vim.bo[buf].modifiable = false
-  local map = function(key, callback)
-    vim.keymap.set("n", key, callback, { buffer = buf, nowait = true, silent = true })
-  end
-  map("<LeftMouse>", function()
-    local mouse = vim.fn.getmousepos()
-    if mouse.winid == project.terminal_win then
-      focus_terminal(project)
-    elseif mouse.winid == project.sidebar_win then
-      vim.api.nvim_set_current_win(project.sidebar_win)
-      if mouse.line > 0 then
-        vim.api.nvim_win_set_cursor(project.sidebar_win, { mouse.line, 0 })
-        sidebar_choice(project)
-      end
-    elseif mouse.winid ~= 0 and is_window(mouse.winid) then
-      vim.api.nvim_set_current_win(mouse.winid)
-    end
-  end)
-  map("<Tab>", function()
-    focus_terminal(project)
-  end)
-  map("<C-w>l", function()
-    focus_terminal(project)
-  end)
-  map("<C-w>k", function()
-    vim.api.nvim_set_current_win(project.sidebar_win)
-  end)
-  map("q", function()
-    M.close(project.cwd)
-  end)
-  return buf
-end
-
 local function update_section_highlights()
   local title = vim.api.nvim_get_hl(0, { name = "FloatTitle", link = false })
   local border = vim.api.nvim_get_hl(0, { name = "FloatBorder", link = false })
@@ -854,13 +572,15 @@ local function update_section_highlights()
     bg = background.bg,
     bold = title.bold or title.cterm and title.cterm.bold,
   })
-end
-
-local function section_title(index, name)
-  return {
-    { string.format("[%d]─", index), "PiSectionBorder" },
-    { name, "PiSectionTitle" },
-  }
+  for source, target in pairs(title_status_groups) do
+    if source ~= "Comment" then
+      local highlight = vim.api.nvim_get_hl(0, { name = source, link = false })
+      vim.api.nvim_set_hl(0, target, {
+        fg = highlight.fg or background.fg,
+        bg = background.bg,
+      })
+    end
+  end
 end
 
 local function layout(project)
@@ -870,119 +590,36 @@ local function layout(project)
     error("Neovim 창이 너무 작습니다. 최소 65×18이 필요합니다")
   end
   local total_width = math.min(math.floor(columns * 0.95), columns - 4)
+  local width = total_width - 2
   local height = math.min(math.floor(lines * 0.86), lines - 4) - 2
-  local sidebar_height = math.max(5, math.min(15, math.floor((height - 2) * 0.48)))
-  local git_height = height - sidebar_height - 2
-  local sidebar_width = math.min(36, math.max(24, math.floor(total_width * 0.29)))
-  local terminal_width = total_width - sidebar_width - 4
   local col = math.floor((columns - total_width) / 2)
   local row = math.floor((lines - height - 2) / 2)
-  project.height = height
-  project.session_height = sidebar_height
-  project.git_height = git_height
-  project.sidebar_width = sidebar_width
   update_section_highlights()
 
-  local backdrop_config = {
+  local config = {
     relative = "editor",
     row = row,
     col = col,
-    width = total_width,
-    height = height + 2,
-    style = "minimal",
-    border = "none",
-    focusable = false,
-    mouse = false,
-    zindex = 49,
-  }
-  local sidebar_config = {
-    relative = "editor",
-    row = row,
-    col = col,
-    width = sidebar_width,
-    height = sidebar_height,
-    style = "minimal",
-    border = "rounded",
-    title = section_title(1, "Sessions"),
-    zindex = 50,
-  }
-  local git_config = {
-    relative = "editor",
-    row = row + sidebar_height + 2,
-    col = col,
-    width = sidebar_width,
-    height = git_height,
-    style = "minimal",
-    border = "rounded",
-    title = section_title(2, "Git"),
-    zindex = 50,
-  }
-  local terminal_config = {
-    relative = "editor",
-    row = row,
-    col = col + sidebar_width + 2,
-    width = terminal_width,
+    width = width,
     height = height,
     style = "minimal",
     border = "rounded",
-    title = section_title(3, "Session"),
+    title = session_title(project, width),
+    title_pos = "left",
     zindex = 50,
   }
-  if
-    is_window(project.backdrop_win)
-    and is_window(project.sidebar_win)
-    and is_window(project.git_win)
-    and is_window(project.terminal_win)
-  then
-    vim.api.nvim_win_set_config(project.backdrop_win, backdrop_config)
-    vim.api.nvim_win_set_config(project.sidebar_win, sidebar_config)
-    vim.api.nvim_win_set_config(project.git_win, git_config)
-    vim.api.nvim_win_set_config(project.terminal_win, terminal_config)
+  if is_window(project.terminal_win) then
+    vim.api.nvim_win_set_config(project.terminal_win, config)
   else
-    for _, key in ipairs({ "backdrop_win", "sidebar_win", "git_win", "terminal_win" }) do
-      if is_window(project[key]) then
-        vim.api.nvim_win_close(project[key], true)
-      end
-    end
-    if not project.backdrop_buf or not vim.api.nvim_buf_is_valid(project.backdrop_buf) then
-      project.backdrop_buf = vim.api.nvim_create_buf(false, true)
-      vim.bo[project.backdrop_buf].bufhidden = "hide"
-    end
-    project.backdrop_win = vim.api.nvim_open_win(project.backdrop_buf, false, backdrop_config)
-    project.sidebar_win = vim.api.nvim_open_win(make_sidebar(project), false, sidebar_config)
-    project.git_win = vim.api.nvim_open_win(make_git(project), false, git_config)
     local tab = active_tab(project)
     local buffer = tab and tab.buf and vim.api.nvim_buf_is_valid(tab.buf) and tab.buf
       or vim.api.nvim_create_buf(false, true)
-    project.terminal_win = vim.api.nvim_open_win(buffer, true, terminal_config)
-    vim.wo[project.backdrop_win].fillchars = "eob: "
-    vim.wo[project.backdrop_win].winhighlight = "Normal:Normal,EndOfBuffer:Normal"
-    vim.wo[project.sidebar_win].number = false
-    vim.wo[project.sidebar_win].cursorline = true
-    vim.wo[project.sidebar_win].wrap = false
-    vim.wo[project.sidebar_win].winhighlight = "FloatBorder:PiSectionBorder"
-    vim.wo[project.git_win].number = false
-    vim.wo[project.git_win].wrap = false
-    vim.wo[project.git_win].winhighlight = "FloatBorder:PiSectionBorder"
+    project.terminal_win = vim.api.nvim_open_win(buffer, true, config)
     vim.wo[project.terminal_win].number = false
     vim.wo[project.terminal_win].signcolumn = "no"
     vim.wo[project.terminal_win].winhighlight = "FloatBorder:PiSectionBorder"
   end
   render(project)
-end
-
-local function start_git_timer(project)
-  if project.git_timer then
-    return
-  end
-  refresh_git(project)
-  local timer = uv.new_timer()
-  timer:start(5000, 5000, function()
-    vim.schedule(function()
-      refresh_git(project)
-    end)
-  end)
-  project.git_timer = timer
 end
 
 local function start_spinner_timer(project)
@@ -992,7 +629,7 @@ local function start_spinner_timer(project)
   local timer = uv.new_timer()
   timer:start(120, 120, function()
     vim.schedule(function()
-      if not is_window(project.sidebar_win) then
+      if not is_window(project.terminal_win) then
         return
       end
       for _, tab in ipairs(project.tabs) do
@@ -1011,19 +648,18 @@ local function ensure_project(cwd)
   local project = projects[cwd]
   if not project then
     project = load(cwd)
-    project.namespace = vim.api.nvim_create_namespace("pi." .. vim.fn.sha256(cwd):sub(1, 12))
     projects[cwd] = project
     if #project.tabs == 0 then
       add_tab(project)
+      return project, true
     end
   end
-  return project
+  return project, false
 end
 
 local function open(cwd)
   local project = ensure_project(cwd)
   layout(project)
-  start_git_timer(project)
   start_spinner_timer(project)
   local index = 1
   for position, tab in ipairs(project.tabs) do
@@ -1050,17 +686,10 @@ function M.close(cwd)
   if not project then
     return
   end
-  for _, key in ipairs({ "backdrop_win", "sidebar_win", "git_win", "terminal_win" }) do
-    if is_window(project[key]) then
-      vim.api.nvim_win_close(project[key], true)
-    end
-    project[key] = nil
+  if is_window(project.terminal_win) then
+    vim.api.nvim_win_close(project.terminal_win, true)
   end
-  if project.git_timer then
-    project.git_timer:stop()
-    project.git_timer:close()
-    project.git_timer = nil
-  end
+  project.terminal_win = nil
   if project.spinner_timer then
     project.spinner_timer:stop()
     project.spinner_timer:close()
@@ -1078,24 +707,36 @@ function M.toggle()
   end
 end
 
-function M.sidebar()
-  local project = projects[current_directory()]
-  if not project or not is_window(project.sidebar_win) then
-    project = M.open()
+function M.sessions(cwd)
+  local project = ensure_project(cwd or current_directory())
+  local choices = {}
+  for index, tab in ipairs(project.tabs) do
+    choices[index] = { index = index, tab = tab }
   end
-  if project then
-    vim.api.nvim_set_current_win(project.sidebar_win)
-  end
+  vim.ui.select(choices, {
+    prompt = "Pi 세션 선택",
+    format_item = function(choice)
+      local status = session_status(choice.tab, spinner_frames[project.frame_index])
+      local marker = choice.tab.id == project.selected_id and "●" or " "
+      return string.format("%s %d. %s · %s", marker, choice.index, choice.tab.title, status)
+    end,
+  }, function(choice)
+    if not choice then
+      return
+    end
+    if is_window(project.terminal_win) then
+      M.select(choice.index, project.cwd)
+    else
+      project.selected_id = choice.tab.id
+      M.open(project.cwd)
+    end
+  end)
 end
 
 function M.terminal()
   local current_win = vim.api.nvim_get_current_win()
   for _, project in pairs(projects) do
-    if
-      current_win == project.sidebar_win
-      or current_win == project.git_win
-      or current_win == project.terminal_win
-    then
+    if current_win == project.terminal_win then
       focus_terminal(project)
       return
     end
@@ -1106,12 +747,31 @@ function M.terminal()
   end
 end
 
-function M.new_session()
-  local project = M.open()
-  if project then
-    add_tab(project)
-    M.select(#project.tabs, project.cwd)
+function M.cycle(offset, cwd)
+  cwd = cwd or current_directory()
+  local project = ensure_project(cwd)
+  local selected_index = 1
+  for index, tab in ipairs(project.tabs) do
+    if tab.id == project.selected_id then
+      selected_index = index
+      break
+    end
   end
+  local next_index = (selected_index - 1 + offset) % #project.tabs + 1
+  if is_window(project.terminal_win) then
+    M.select(next_index, cwd)
+  else
+    project.selected_id = project.tabs[next_index].id
+    M.open(cwd)
+  end
+end
+
+function M.new_session()
+  local project, created = ensure_project(current_directory())
+  if not created then
+    add_tab(project)
+  end
+  M.open(project.cwd)
 end
 
 function M.ask(command_range)
@@ -1163,17 +823,9 @@ function M.setup(options)
     callback = function(event)
       local closed = tonumber(event.match)
       for _, project in pairs(projects) do
-        if
-          closed == project.sidebar_win
-          or closed == project.git_win
-          or closed == project.terminal_win
-        then
+        if closed == project.terminal_win then
           vim.schedule(function()
-            if
-              closed == project.sidebar_win
-              or closed == project.git_win
-              or closed == project.terminal_win
-            then
+            if closed == project.terminal_win then
               M.close(project.cwd)
             end
           end)
