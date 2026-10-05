@@ -14,25 +14,28 @@ bin=${0:A:h}
 if [[ ${1:-} == --render ]]; then
   terms=(${=${2:-}})
   bold=$'\e[1m' dim=$'\e[2m' green=$'\e[32m' reset=$'\e[0m'
-  branch_icon=$'\xef\x90\x98'   # U+F418, Nerd Font Octicon git-branch (raw bytes: locale-independent)
+  repo_icon=$'\xef\x90\x81'     # U+F401, Nerd Font Octicon repo (raw bytes: locale-independent)
+  folder_icon=$'\xef\x81\xbb'   # U+F07B, Nerd Font folder
+  branch_icon=$'\xef\x90\x98'   # U+F418, Nerd Font Octicon git-branch
   rows=()
-  while IFS=$'\t' read -r repo branch dir live is_main; do
-    rows+=("$repo	$branch	$dir	$live	$is_main")
-  done < "$WT_CACHE"
   typeset -A maindir
-  prev=""
-  for row in $rows; do
-    IFS=$'\t' read -r repo branch dir live is_main <<< "$row"
+  while IFS=$'\t' read -r repo branch dir live is_main; do
     (( is_main )) && maindir[$repo]=$dir
     name=${dir:t}
     hay="${(L)repo} ${(L)name} ${(L)branch}"
     for t in $terms; do [[ $hay == *${(L)t}* ]] || continue 2; done
+    rows+=("$repo	$branch	$dir	$live	$is_main")
+  done < "$WT_CACHE"
+  prev=""
+  for row in $rows; do
+    IFS=$'\t' read -r repo branch dir live is_main <<< "$row"
     if [[ $repo != $prev ]]; then
-      print -rn -- "${bold}${repo}${reset}	${maindir[$repo]:-$dir}	h"$'\0'   # header opens main worktree
+      print -rn -- "${bold}${repo_icon} ${repo}${reset}	${maindir[$repo]:-$dir}	h"$'\0'   # header opens main worktree
       prev=$repo
     fi
-    mark=" "; (( live )) && mark="${green}●${reset}"
-    print -rn -- "  ${mark} ${name}"$'\n'"      ${dim}${branch_icon} ${branch}${reset}	$dir	w"$'\0'
+    name=${dir:t}
+    mark=""; (( live )) && mark=" ${green}✓${reset}"
+    print -rn -- "  ${folder_icon} ${name}${mark}"$'\n'"   ${dim}└${reset} ${branch_icon} ${branch}	$dir	w"$'\0'
   done
   exit 0
 fi
