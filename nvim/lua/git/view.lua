@@ -92,7 +92,7 @@ local function pane_configs(page, show_details)
         " [4] Commit details ",
         " [5] Changed files ",
       }
-    or { " [1] Files ", " [2] Before ", " [3] After " }
+    or { " [1] Changed files ", " [2] Before ", " [3] After " }
   local footers = page == "main"
       and { " Enter: history · a: all ", " R: reflog · +: more ", nil, " Enter: compare " }
     or { " Enter: compare · q: back " }
@@ -348,9 +348,23 @@ local function common_maps(state, target)
       end
     end
   end, "Previous Git pane")
+  for index = 1, 5 do
+    map(target, tostring(index), function()
+      local window = focus_windows(state)[index]
+      if window and vim.api.nvim_win_is_valid(window) then
+        vim.api.nvim_set_current_win(window)
+      end
+    end, "Focus Git pane " .. index)
+  end
   map(target, "r", function()
     M.refresh(state)
   end, "Refresh Git view")
+end
+
+local function status_highlight_group(status)
+  return (status == "A" or status == "?") and "GitLuaStatusAdd"
+    or status == "D" and "GitLuaStatusDelete"
+    or "GitLuaStatusChange"
 end
 
 local function style_details(target, content)
@@ -364,11 +378,14 @@ local function style_details(target, content)
     then
       vim.api.nvim_buf_add_highlight(target, graph_namespace, "Title", index - 1, 1, #line)
     elseif line:match("^  [AMDRCU%?]  ") then
-      local status = line:sub(3, 3)
-      local group = (status == "A" or status == "?") and "GitLuaStatusAdd"
-        or status == "D" and "GitLuaStatusDelete"
-        or "GitLuaStatusChange"
-      vim.api.nvim_buf_add_highlight(target, graph_namespace, group, index - 1, 2, 3)
+      vim.api.nvim_buf_add_highlight(
+        target,
+        graph_namespace,
+        status_highlight_group(line:sub(3, 3)),
+        index - 1,
+        2,
+        3
+      )
     end
   end
 end
@@ -1213,7 +1230,7 @@ local function render_diff(state, file_index)
   end
   lines(state.old_buffer, { "Loading " .. file.path .. "…" })
   lines(state.new_buffer, { "Loading " .. file.path .. "…" })
-  vim.api.nvim_win_set_cursor(state.files_window, { file_index + 2, 0 })
+  vim.api.nvim_win_set_cursor(state.files_window, { file_index, 0 })
   diff_content(state, file, request)
 end
 
@@ -1232,12 +1249,23 @@ function M.open_diff(state, file_index)
     state.old_buffer,
     state.new_buffer,
   })
-  set_title(state.files_window, 1, string.format("Files (%d)", #state.detail_files))
-  local file_lines = { " Changed files", "" }
-  for _, file in ipairs(state.detail_files) do
-    file_lines[#file_lines + 1] = string.format(" %s %s", file.status, file.path)
+  set_title(state.files_window, 1, string.format("Changed files (%d)", #state.detail_files))
+  local file_lines = {}
+  for index, file in ipairs(state.detail_files) do
+    file_lines[index] = string.format(" %s %s", file.status, file.path)
   end
   lines(state.files_buffer, file_lines)
+  vim.api.nvim_buf_clear_namespace(state.files_buffer, graph_namespace, 0, -1)
+  for index, file in ipairs(state.detail_files) do
+    vim.api.nvim_buf_add_highlight(
+      state.files_buffer,
+      graph_namespace,
+      status_highlight_group(file.status),
+      index - 1,
+      1,
+      2
+    )
+  end
 
   for _, target in ipairs({ state.files_buffer, state.old_buffer, state.new_buffer }) do
     common_maps(state, target)
@@ -1249,7 +1277,7 @@ function M.open_diff(state, file_index)
     end, "Back to Git history")
   end
   map(state.files_buffer, "<CR>", function()
-    render_diff(state, vim.api.nvim_win_get_cursor(state.files_window)[1] - 2)
+    render_diff(state, vim.api.nvim_win_get_cursor(state.files_window)[1])
   end, "Compare file")
   render_diff(state, file_index)
   vim.api.nvim_set_current_win(state.files_window)
@@ -1475,7 +1503,7 @@ function M.open()
           string.format("Changed files (%d)", #state.detail_files)
         )
       else
-        set_title(state.files_window, 1, string.format("Files (%d)", #state.detail_files))
+        set_title(state.files_window, 1, string.format("Changed files (%d)", #state.detail_files))
         local file = state.detail_files[state.diff_index]
         if file then
           set_title(state.old_window, 2, "Before · " .. (file.original_path or file.path))
