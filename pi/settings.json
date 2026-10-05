@@ -15,5 +15,5 @@
     "./packages/pi-web-access"
   ],
   "lastChangelogVersion": "0.86.1",
-  "theme": "dark"
+  "theme": "atom-one-dark"
 }

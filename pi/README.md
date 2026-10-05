@@ -12,6 +12,8 @@ Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하
 
 Neovim에서 실행하는 Pi는 `--tui-mode fullscreen`을 사용해 대화가 짧아도 입력창과 상태 영역을 터미널 아래쪽에 고정한다. 대화 내용은 그 위의 영역에서 스크롤한다.
 
+Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/pi-community-themes/blob/a6d7731fd46db4721654bf45161fb2cd1e8cbc1e/themes/atom-one-dark.json) 원본을 `themes/atom-one-dark.json`에 보관하고 사용한다. 원본의 MIT 라이선스는 `themes/LICENSE`에 포함한다. `settings.json`에서 `atom-one-dark`를 선택하며, home-manager는 테마 파일을 `~/.pi/agent/themes/`에 연결한다. Neovim float의 테두리·제목 색은 Neovim 테마가 관리한다.
+
 - `<leader>pt` 또는 `:Pi`: float 열기·숨기기
 - `<leader>pn` 또는 `:PiNew`: 새 세션
 - `<leader>ps` 또는 `:PiSessions`: 세션 선택 메뉴

@@ -57,6 +57,10 @@ in
   };
 
   home.file.".pi/agent/settings.json".source = create_symlink "${dotfiles}/pi/settings.json";
+  home.file.".pi/agent/themes/atom-one-dark.json" = {
+    source = create_symlink "${dotfiles}/pi/themes/atom-one-dark.json";
+    force = true;
+  };
   home.file.".pi/agent/models.json".source = create_symlink "${dotfiles}/pi/models.json";
   home.file.".pi/agent/web-search.json".source = create_symlink "${dotfiles}/pi/web-search.json";
   home.file.".pi/agent/extensions/footer.ts".source =

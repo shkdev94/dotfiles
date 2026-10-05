@@ -16,7 +16,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
 - `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`, `skills/`는 `~/.agents/skills/`에 연결한다.
-- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `extensions/`의 UI 확장, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
+- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `extensions/`의 UI 확장, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
 - `codex/skills/`, `pi/skills/` — 각 클라이언트의 독립적인 스킬 복사본. 에이전트도 클라이언트별 형식에 맞게 `codex/agents/*.toml`, `pi/agents/*.md`로 각각 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
