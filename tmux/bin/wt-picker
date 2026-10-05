@@ -14,7 +14,7 @@ bin=${0:A:h}
 if [[ ${1:-} == --render ]]; then
   terms=(${=${2:-}})
   bold=$'\e[1m' dim=$'\e[2m' green=$'\e[32m' reset=$'\e[0m'
-  branch_icon=$'\xee\x82\xa0'   # U+E0A0, Nerd Font git-branch glyph (raw bytes: locale-independent)
+  branch_icon=$'\xef\x90\x98'   # U+F418, Nerd Font Octicon git-branch (raw bytes: locale-independent)
   rows=()
   while IFS=$'\t' read -r repo branch dir live is_main; do
     rows+=("$repo	$branch	$dir	$live	$is_main")
