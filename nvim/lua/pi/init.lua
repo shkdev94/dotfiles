@@ -152,28 +152,28 @@ end
 
 local function session_status(tab, frame)
   if tab.status == "작업 중" then
-    local phase = tab.phase == "retry" and "재시도"
-      or tab.phase == "tool" and "도구 실행"
-      or tab.phase == "compaction" and "정리 중"
-      or "작업 중"
-    return frame .. " " .. phase, "DiagnosticInfo"
+    local phase = tab.phase == "retry" and "↻"
+      or tab.phase == "tool" and "⚙"
+      or tab.phase == "compaction" and "◌"
+      or ""
+    return phase .. frame, "DiagnosticInfo"
   end
   if tab.status == "입력 필요" then
-    return "◉ 입력 필요", "DiagnosticWarn"
+    return "◉", "DiagnosticWarn"
   end
   if tab.status == "오류" then
-    return tab.unread and "! 오류 확인" or "! 오류", "DiagnosticError"
+    return "!", "DiagnosticError"
   end
   if tab.status == "시작 중" then
-    return "… 시작 중", "Comment"
+    return "…", "Comment"
   end
   if tab.status == "종료" then
-    return "□ 종료", "Comment"
+    return "□", "Comment"
   end
   if tab.unread then
-    return "✓ 결과 확인", "DiagnosticOk"
+    return "✓", "DiagnosticOk"
   end
-  return "○ 대기", "Comment"
+  return "○", "Comment"
 end
 
 local title_status_groups = {
