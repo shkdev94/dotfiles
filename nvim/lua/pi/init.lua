@@ -774,9 +774,9 @@ function M.new_session()
   M.open(project.cwd)
 end
 
-function M.ask(command_range)
+function M.ask(command_range, include_diagnostics)
   local cwd = current_directory()
-  local selection = context.capture(command_range)
+  local selection = context.capture(command_range, include_diagnostics)
   vim.ui.input({ prompt = "Pi: " }, function(prompt)
     if not prompt or not prompt:match("%S") then
       return

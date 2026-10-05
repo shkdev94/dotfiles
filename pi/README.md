@@ -19,7 +19,8 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 - `<leader>ps` 또는 `:PiSessions`: 세션 선택 메뉴
 - `<leader>p[`·`<leader>p]`: 이전·다음 세션
 - `<leader>pl`: Pi 세션 창으로 이동
-- `<leader>pa` 또는 `:PiAsk`: Pi 화면을 열지 않고 질문 입력창만 띄운다. Enter를 누르면 현재 위치나 선택 영역을 선택 중인 세션으로 전송하고, 세션이 아직 실행 중이지 않다면 백그라운드에서 시작한다. Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
+- `<leader>pa` 또는 `:PiAsk`: Pi 화면을 열지 않고 질문 입력창만 띄운다. Enter를 누르면 일반 모드에서는 현재 위치를, Visual 모드에서는 선택한 코드를 선택 중인 세션으로 전송한다. 진단은 포함하지 않는다.
+- `<leader>pd`: `<leader>pa`와 같은 내용에 해당 위치의 오류·경고를 더해 전송한다. 일반 모드에서는 커서가 있는 줄, Visual 모드에서는 선택 범위와 겹치는 진단을 포함한다. 진단이 없으면 생략한다. 두 키 모두 세션이 아직 실행 중이지 않다면 백그라운드에서 시작하며, Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
 - Pi 터미널에서 `<C-\>s`: 세션 선택 메뉴, `<C-\>[`·`<C-\>]`: 이전·다음 세션, `<C-\>q`: float 숨기기
 
 `extensions/nvim.ts`가 Neovim의 로컬 소켓으로 질문과 작업 상태를 주고받는다. 소켓과 플러그인 세션 목록은 `stdpath("state")/pi/`에, 대화는 Pi의 기본 세션 디렉터리에 저장된다. home-manager 적용 전에는 플러그인이 저장소의 `nvim.ts`를 Pi에 직접 넘긴다.
