@@ -8,26 +8,16 @@ Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하
 
 ## Neovim 통합
 
-`nvim/plugin/pi.lua`가 작업 디렉터리마다 Pi 세션 목록을 관리한다. 하나의 **Session** float 윗선에 세션 번호·제목·상태를 표시하고, 선택한 세션의 Pi TUI를 안쪽에 띄운다. 세션이 많으면 선택한 항목이 보이도록 제목 목록의 표시 범위를 옮긴다. float를 숨기거나 다른 세션을 선택해도 각 Pi 프로세스는 계속 실행된다. Neovim을 종료한 뒤에는 Pi의 세션 파일로 대화를 복원한다.
+Pi TUI는 tmux 등 Neovim 바깥에서 실행한다. `extensions/nvim.ts`는 실행 중인 각 Pi TUI에 사용자 전용 로컬 소켓을 열고 작업 디렉터리·세션 ID·이름을 `/tmp/pi-nvim-<uid>/`에 등록한다. Neovim은 같은 작업 디렉터리의 살아 있는 세션만 조회한다. 세션이 하나면 기존 질문 입력창을 쓰고, 여러 개면 질문 입력칸과 그 아래의 세션 목록을 한 화면에 표시한다. 입력한 질문은 목록 검색에 사용하지 않으며, `↑`·`↓` 또는 `Tab`·`Shift-Tab`으로 대상을 고르고 `Enter`로 전송한다. `Esc`는 취소하며, 빈 질문은 전송하지 않는다. 해당 디렉터리에 세션이 없으면 다른 프로젝트나 새 Pi로 자동 전환하지 않는다. 기존 Pi를 재시작하거나 `/reload`한 뒤 사용한다.
 
-Neovim에서 실행하는 Pi는 `--tui-mode fullscreen`을 사용해 대화가 짧아도 입력창과 상태 영역을 터미널 아래쪽에 고정한다. 대화 내용은 그 위의 영역에서 스크롤한다.
+- `<leader>pa` 또는 `:PiAsk`: 일반 모드에서는 현재 파일 전체(저장 전 버퍼 내용 포함), Visual 모드에서는 선택한 코드로 질문한다. 진단은 포함하지 않는다.
+- `<leader>pd`: 기존 진단 전송 방식대로 일반 모드에서는 커서 위치, Visual 모드에서는 선택 영역에 해당하는 오류·경고를 더한다. 진단이 없으면 생략한다. 두 단축키 모두 `multicursor.nvim`의 다중 선택을 지원한다.
 
-Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/pi-community-themes/blob/a6d7731fd46db4721654bf45161fb2cd1e8cbc1e/themes/atom-one-dark.json) 원본을 `themes/atom-one-dark.json`에 보관하고 사용한다. 원본의 MIT 라이선스는 `themes/LICENSE`에 포함한다. `settings.json`에서 `atom-one-dark`를 선택하며, home-manager는 테마 파일을 `~/.pi/agent/themes/`에 연결한다. Neovim float의 테두리·제목 색은 Neovim 테마가 관리한다.
+Neovim을 종료해도 외부 Pi는 그대로 실행된다. RPC·비대화형 하위 에이전트는 전송 대상으로 등록하지 않는다. 여러 Pi를 구분하려면 Pi의 `/name`으로 이름을 붙일 수 있으며, 선택 목록에는 이름·PID·세션 ID를 표시한다. 기존 내부 터미널용 `pt`·`pn`·`ps`·`p[`·`p]`·`pl` 단축키와 `:Pi`·`:PiNew`·`:PiSessions` 명령은 제거했다.
 
-- `<leader>pt` 또는 `:Pi`: float 열기·숨기기
-- `<leader>pn` 또는 `:PiNew`: 새 세션
-- `<leader>ps` 또는 `:PiSessions`: 세션 선택 메뉴
-- `<leader>p[`·`<leader>p]`: 이전·다음 세션
-- `<leader>pl`: Pi 세션 창으로 이동
-- `<leader>pa` 또는 `:PiAsk`: Pi 화면을 열지 않고 질문 입력창만 띄운다. Enter를 누르면 일반 모드에서는 현재 위치를, Visual 모드에서는 선택한 코드를 선택 중인 세션으로 전송한다. 진단은 포함하지 않는다.
-- `<leader>pd`: `<leader>pa`와 같은 내용에 해당 위치의 오류·경고를 더해 전송한다. 일반 모드에서는 커서가 있는 줄, Visual 모드에서는 선택 범위와 겹치는 진단을 포함한다. 진단이 없으면 생략한다. 두 키 모두 세션이 아직 실행 중이지 않다면 백그라운드에서 시작하며, Visual 모드와 `multicursor.nvim`의 다중 선택을 지원한다.
-- Pi 터미널에서 `<C-\>s`: 세션 선택 메뉴, `<C-\>[`·`<C-\>]`: 이전·다음 세션, `<C-\>q`: float 숨기기
+컨텍스트·소켓 검증은 저장소 루트에서 `nvim --headless -u NONE -l nvim/tests/pi_context.lua`와 `node --test nvim/tests/pi_bridge.mjs pi/tests/nvim-bridge.test.mjs`로 실행한다. Node 테스트는 TypeScript 직접 로딩을 지원하는 Node 22.18 이상이 필요하다.
 
-`extensions/nvim.ts`가 Neovim의 로컬 소켓으로 질문과 작업 상태를 주고받는다. 소켓과 플러그인 세션 목록은 `stdpath("state")/pi/`에, 대화는 Pi의 기본 세션 디렉터리에 저장된다. home-manager 적용 전에는 플러그인이 저장소의 `nvim.ts`를 Pi에 직접 넘긴다.
-
-float 윗선에는 `1. 제목 ○` 형식으로 세션 번호·제목·상태 아이콘을 표시한다. 선택한 세션은 제목 색으로 구분한다. Pi에서 이름을 지정하지 않은 기존 세션은 첫 사용자 요청을 제목으로 사용한다.
-
-상태 아이콘은 `○` 대기, `…` 시작 중, 움직이는 점자 아이콘은 작업 중, `⚙`+점자는 도구 실행, `◌`+점자는 정리 중, `↻`+점자는 재시도, `◉`는 입력 필요, `✓`는 결과 확인, `!`는 오류, `□`는 종료를 뜻한다. 취소된 작업은 새 결과로 표시하지 않는다. 자동 재시도 이벤트가 전달되지 않는 경우에는 일반 작업 중 아이콘으로 표시한다.
+Neovim은 Pi 프로세스를 생성하거나 Pi 화면을 관리하지 않는다. Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/pi-community-themes/blob/a6d7731fd46db4721654bf45161fb2cd1e8cbc1e/themes/atom-one-dark.json) 원본을 `themes/atom-one-dark.json`에 보관하고 사용한다. 원본의 MIT 라이선스는 `themes/LICENSE`에 포함한다. `settings.json`에서 `atom-one-dark`를 선택하며, home-manager는 테마 파일을 `~/.pi/agent/themes/`에 연결한다.
 
 ## 모델과 계정
 

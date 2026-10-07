@@ -8,7 +8,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 
 - `flake.nix` — 시스템 패키지, macOS 기본 설정, Homebrew(brews/casks/masApps), nix-darwin 설정을 정의하는 메인 flake
 - `home.nix` — 사용자 프로그램(zsh, git, vim) 설정과 `mkOutOfStoreSymlink`를 이용한 dotfile 심볼릭 링크를 관리하는 home-manager 설정
-- `nvim/` — Neovim 설정, LSP 및 플러그인 설정. `lua/pi/`와 `plugin/pi.lua`는 Pi 세션을 floating 터미널 버퍼로 관리한다.
+- `nvim/` — Neovim 설정, LSP 및 플러그인 설정. `lua/pi/`와 `plugin/pi.lua`는 같은 작업 디렉터리에서 실행 중인 외부 Pi 세션으로 파일·선택 영역·진단과 질문을 전송한다.
 - `tmux/` — Git worktree Workspace 사이드바와 tmux 설정
 - `zshrc` — home-manager의 `initContent`로 불러오는 Zsh 설정. 별칭, 환경 변수, mise 활성화 설정 포함
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결

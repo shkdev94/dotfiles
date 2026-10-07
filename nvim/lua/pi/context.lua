@@ -144,7 +144,7 @@ local function diagnostic_context(buf, items, cursor_line)
   return table.concat(lines, "\n")
 end
 
-function M.capture(command_range, include_diagnostics)
+function M.capture(command_range, include_diagnostics, include_file)
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)
   if path == "" then
@@ -169,9 +169,22 @@ function M.capture(command_range, include_diagnostics)
   local cursor = vim.api.nvim_win_get_cursor(0)
   local context = {}
   if #items == 0 then
-    context[1] = string.format("Neovim 현재 위치: %s:%d:%d", path, cursor[1], cursor[2] + 1)
+    if include_file then
+      local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      local marker = fence(text)
+      context[1] = string.format(
+        "Neovim 현재 파일: %s (저장 전 수정 사항 포함)\n%s\n%s\n%s",
+        path,
+        marker,
+        text,
+        marker
+      )
+    else
+      context[1] = string.format("Neovim 현재 위치: %s:%d:%d", path, cursor[1], cursor[2] + 1)
+    end
   else
-    context[1] = "Neovim 버퍼에서 선택한 현재 내용입니다. 저장 전 수정 사항도 이 내용에 반영되어 있습니다."
+    context[1] =
+      "Neovim 버퍼에서 선택한 현재 내용입니다. 저장 전 수정 사항도 이 내용에 반영되어 있습니다."
     for index, item in ipairs(items) do
       local range = string.format(
         "%s:%d:%d-%d:%d",

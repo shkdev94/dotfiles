@@ -1,157 +1,173 @@
-import { createConnection, type Socket } from "node:net";
+import * as fs from "node:fs";
+import * as net from "node:net";
+import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 import type { ExtensionAPI, SessionManager } from "@earendil-works/pi-coding-agent";
 
-type PromptCommand = { type: "prompt"; text: string };
+const MAX_REQUEST_BYTES = 1_000_000;
+const SOCKET_DIR = `/tmp/pi-nvim-${process.getuid?.()}`;
 
-function firstPromptTitle(manager: SessionManager): string | undefined {
+function firstPromptTitle(manager: Pick<SessionManager, "getEntries">): string | undefined {
   for (const entry of manager.getEntries()) {
     if (entry.type !== "message" || entry.message.role !== "user") continue;
     const content = entry.message.content;
-    const text = typeof content === "string"
-      ? content
-      : content.filter(block => block.type === "text").map(block => block.text).join("\n");
+    const text =
+      typeof content === "string"
+        ? content
+        : content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n");
     const request = text.match(/(?:^|\n)요청:\s*\n([\s\S]*)$/)?.[1] ?? text;
-    const firstLine = request.split("\n").find(line => line.trim())?.trim().replace(/[\x00-\x1f\x7f]/g, " ");
+    const firstLine = request
+      .split("\n")
+      .find((line) => line.trim())
+      ?.trim()
+      .replace(/[\x00-\x1f\x7f]/g, " ");
     if (firstLine) return Array.from(firstLine).slice(0, 40).join("");
   }
   return undefined;
 }
 
+function ensureSocketDirectory(): void {
+  fs.mkdirSync(SOCKET_DIR, { recursive: true, mode: 0o700 });
+  const stat = fs.lstatSync(SOCKET_DIR);
+  if (!stat.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) {
+    throw new Error(`Pi 소켓 디렉터리가 안전하지 않습니다: ${SOCKET_DIR}`);
+  }
+}
+
 export default function nvim(pi: ExtensionAPI): void {
-  const socketPath = process.env.PI_NVIM_SOCKET;
-  if (!socketPath) return;
+  let server: net.Server | undefined;
+  const clients = new Set<net.Socket>();
+  let socketPath: string | undefined;
+  let manifestPath: string | undefined;
+  let cwd: string | undefined;
+  let sessionId: string | undefined;
+  let name: string | undefined;
 
-  let socket: Socket | undefined;
-  let running = false;
-  let ranSinceSettled = false;
-  let compacting = false;
-  let awaitingPrompt = false;
-  let activeTools = 0;
-  let finalOutcome: "completed" | "aborted" | "error" | undefined;
-  let lastStopReason: string | undefined;
-
-  const emit = (message: Record<string, unknown>) => {
-    if (socket?.writable) socket.write(`${JSON.stringify(message)}\n`);
+  const cleanup = () => {
+    process.off("exit", cleanup);
+    for (const client of clients) client.destroy();
+    clients.clear();
+    server?.close();
+    server = undefined;
+    if (manifestPath) fs.rmSync(manifestPath, { force: true });
+    if (socketPath) fs.rmSync(socketPath, { force: true });
+    manifestPath = undefined;
+    socketPath = undefined;
   };
 
-  const emitActivity = () => {
-    if (awaitingPrompt) emit({ type: "blocked" });
-    else if (compacting) emit({ type: "working", phase: "compaction" });
-    else if (activeTools > 0) emit({ type: "working", phase: "tool" });
-    else if (running) emit({ type: "working" });
-    else emit({ type: "idle" });
-  };
-
-  pi.on("session_start", (_event, ctx) => {
-    socket?.destroy();
-    running = false;
-    ranSinceSettled = false;
-    compacting = false;
-    awaitingPrompt = false;
-    activeTools = 0;
-    finalOutcome = undefined;
-    lastStopReason = undefined;
-    let incoming = "";
-    const connection = createConnection(socketPath);
-    socket = connection;
-    connection.on("connect", () => {
-      emit({
-        type: "hello",
-        pid: process.pid,
-        sessionId: ctx.sessionManager.getSessionId(),
-        sessionFile: ctx.sessionManager.getSessionFile(),
-        name: ctx.sessionManager.getSessionName() ?? firstPromptTitle(ctx.sessionManager),
+  const publish = () => {
+    if (!manifestPath || !cwd || !sessionId) return;
+    const temporary = `${manifestPath}.tmp`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify({ cwd, sessionId, pid: process.pid, name }), {
+        flag: "wx",
+        mode: 0o600,
       });
-    });
-    connection.on("data", chunk => {
-      incoming += chunk.toString("utf8");
-      if (incoming.length > 1_000_000) {
-        connection.destroy();
-        return;
-      }
-      let newline = incoming.indexOf("\n");
-      while (newline !== -1) {
-        const line = incoming.slice(0, newline);
-        incoming = incoming.slice(newline + 1);
-        try {
-          const command = JSON.parse(line) as PromptCommand;
-          if (command.type === "prompt" && typeof command.text === "string" && command.text.trim()) {
-            pi.sendUserMessage(command.text, { deliverAs: "followUp", expandPromptTemplates: true });
+      fs.renameSync(temporary, manifestPath);
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
+    cleanup();
+    if (ctx.mode !== "tui") return;
+    try {
+      ensureSocketDirectory();
+      cwd = fs.realpathSync(ctx.cwd);
+      sessionId = ctx.sessionManager.getSessionId();
+      name = ctx.sessionManager.getSessionName() ?? firstPromptTitle(ctx.sessionManager);
+      const base = `${process.pid}-${randomBytes(6).toString("hex")}`;
+      socketPath = path.join(SOCKET_DIR, `${base}.sock`);
+      manifestPath = path.join(SOCKET_DIR, `${base}.json`);
+
+      const listener = net.createServer((client) => {
+        clients.add(client);
+        client.on("close", () => clients.delete(client));
+        client.on("error", () => client.destroy());
+        client.setTimeout(5000, () => client.destroy());
+        client.setEncoding("utf8");
+        let input = "";
+        const reply = (response: Record<string, unknown>) =>
+          client.end(`${JSON.stringify(response)}\n`);
+        client.on("data", (data: string) => {
+          input += data;
+          if (Buffer.byteLength(input) > MAX_REQUEST_BYTES) {
+            client.pause();
+            reply({ ok: false, error: "요청이 너무 큽니다" });
+            return;
           }
-        } catch (error) {
-          emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
-        }
-        newline = incoming.indexOf("\n");
-      }
-    });
-    connection.on("error", () => {
-      connection.destroy();
-    });
+          const newline = input.indexOf("\n");
+          if (newline < 0) return;
+          const line = input.slice(0, newline);
+          client.pause();
+          try {
+            const request: unknown = JSON.parse(line);
+            if (typeof request !== "object" || request === null || !("type" in request)) {
+              reply({ ok: false, error: "잘못된 요청입니다" });
+              return;
+            }
+            if (request.type === "ping") {
+              reply({ ok: true, cwd, sessionId, pid: process.pid, name });
+            } else if (
+              request.type === "prompt" &&
+              "text" in request &&
+              typeof request.text === "string" &&
+              request.text.trim()
+            ) {
+              if (
+                !("cwd" in request) ||
+                request.cwd !== cwd ||
+                !("sessionId" in request) ||
+                request.sessionId !== sessionId
+              ) {
+                reply({ ok: false, error: "대상 Pi 세션이 변경됐습니다" });
+                return;
+              }
+              pi.sendUserMessage(request.text, {
+                deliverAs: "followUp",
+                expandPromptTemplates: true,
+              });
+              reply({ ok: true });
+            } else {
+              reply({ ok: false, error: "잘못된 요청입니다" });
+            }
+          } catch (error) {
+            reply({ ok: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        });
+      });
+      server = listener;
+      await new Promise<void>((resolve, reject) => {
+        listener.once("error", reject);
+        listener.listen(socketPath, () => {
+          listener.off("error", reject);
+          resolve();
+        });
+      });
+      listener.on("error", (error) => ctx.ui.notify(`Pi 소켓 실패: ${error.message}`, "error"));
+      fs.chmodSync(socketPath, 0o600);
+      publish();
+      process.on("exit", cleanup);
+    } catch (error) {
+      cleanup();
+      ctx.ui.notify(`Pi 세션 연결 실패: ${String(error)}`, "error");
+    }
   });
 
   pi.on("agent_start", (_event, ctx) => {
-    running = true;
-    ranSinceSettled = true;
-    finalOutcome = undefined;
-    lastStopReason = undefined;
-    emitActivity();
-    const name = ctx.sessionManager.getSessionName() ?? firstPromptTitle(ctx.sessionManager);
-    if (name) emit({ type: "name", name });
-  });
-  pi.on("tool_execution_start", () => {
-    activeTools += 1;
-    emitActivity();
-  });
-  pi.on("tool_execution_end", () => {
-    activeTools = Math.max(0, activeTools - 1);
-    emitActivity();
-  });
-  pi.on("session_before_compact", () => {
-    compacting = true;
-    emitActivity();
-  });
-  pi.on("session_compact", () => {
-    compacting = false;
-    emitActivity();
-  });
-  pi.on("session_compact_failed", () => {
-    compacting = false;
-    emitActivity();
-  });
-  pi.on("ui_prompt_start", () => {
-    awaitingPrompt = true;
-    emitActivity();
-  });
-  pi.on("ui_prompt_end", () => {
-    awaitingPrompt = false;
-    emitActivity();
-  });
-  pi.on("input", () => emit({ type: "read" }));
-  pi.on("message_end", event => {
-    if (event.message.role === "assistant") lastStopReason = event.message.stopReason;
-  });
-  pi.on("agent_before_settle", event => {
-    finalOutcome = event.outcome;
-  });
-  pi.on("agent_settled", () => {
-    const outcome = !ranSinceSettled ? "aborted"
-      : finalOutcome ?? (lastStopReason === "aborted" ? "aborted" : lastStopReason === "error" ? "error" : "completed");
-    emit({ type: "settled", outcome });
-    running = false;
-    ranSinceSettled = false;
-    compacting = false;
-    awaitingPrompt = false;
-    activeTools = 0;
-    finalOutcome = undefined;
-    lastStopReason = undefined;
+    const next = ctx.sessionManager.getSessionName() ?? firstPromptTitle(ctx.sessionManager);
+    if (next && next !== name) {
+      name = next;
+      publish();
+    }
   });
   pi.on("session_info_changed", (event, ctx) => {
-    emit({ type: "name", name: event.name ?? firstPromptTitle(ctx.sessionManager) ?? null });
+    name = event.name ?? firstPromptTitle(ctx.sessionManager);
+    publish();
   });
-  pi.on("session_shutdown", () => {
-    socket?.destroy();
-    socket = undefined;
-    running = false;
-    activeTools = 0;
-  });
+  pi.on("session_shutdown", cleanup);
 }
