@@ -11,6 +11,10 @@
         "clientName": "Codex"
       }
     },
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": "oauth"
+    },
     "browser-use": {
       "command": "/run/current-system/sw/bin/browser-use",
       "args": ["--mcp"]
