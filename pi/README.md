@@ -72,6 +72,23 @@ GPT-6-Sol xhigh · ~/.dotfiles · main · No changes · Context 52% left · week
 
 별도의 footer 패키지나 추가 로그인이 필요하지 않다. 설정과 확장을 수정한 뒤에는 `/reload`로 적용한다.
 
+## 결과 섹션 탐색
+
+`settings.json`의 `tuiMode = "fullscreen"`을 기본으로 사용한다. `extensions/section-navigation/`은 기존 결과 영역의 답변·도구 결과·생각 블록을 화면 순서대로 탐색한다. 별도 결과 뷰어를 만들거나 메시지·도구 실행 내용을 변경하지 않는다.
+
+| 키 | 동작 |
+| --- | --- |
+| `F6` | 탐색 모드 진입, 최신 섹션 선택. 탐색 중에는 입력 모드로 복귀 |
+| `↑` / `↓` | 이전 / 다음 섹션 선택 |
+| `Enter` | 선택한 도구 결과·생각 블록만 펼치기/접기. 일반 답변에서는 아무 동작도 하지 않음 |
+| `Esc` | 입력 모드로 복귀. 탐색 모드를 종료할 때는 에이전트를 중단하지 않음 |
+
+선택한 섹션의 첫 내용 행을 강조하고, 화면 밖이면 해당 위치로 이동한다. 입력창 위에 현재 섹션과 사용할 수 있는 키를 표시한다. 탐색 중 새 출력이 추가돼도 선택한 섹션을 유지한다. 다른 키를 입력하거나 붙여넣으면 탐색을 끝내고 기존 입력창으로 전달한다. 작성 중인 입력은 유지하며, 선택·검색·설정 등 다른 UI에는 탐색 키를 가로채지 않는다. 마우스 선택·복사·개별 펼치기와 기존 PageUp/PageDown·검색은 유지한다. `End`는 Pi의 기본 동작대로 최신 출력으로 이동한다.
+
+기존 Pi 컴포넌트 트리와 fullscreen ScrollView에 접근하므로 공개 확장 API만으로 보장되는 기능은 아니다. Pi 0.86.1·0.87.1 구조를 기준으로 구현했으며, 호환되지 않는 구조는 경고하고 탐색을 중지한다. Pi 업데이트 시 `node --test pi/tests/section-navigation.test.mjs`로 회귀를 확인한다. 다른 설치를 검증하려면 `PI_TEST_PACKAGE_DIR`에 해당 Pi의 `lib/node_modules/pi-monorepo` 경로를 지정한다.
+
+새 확장 경로는 home-manager 적용(`nxr`) 후 연결된다. 기존 세션은 `/reload`하고 `/settings`에서 TUI mode를 fullscreen으로 변경한다. 새 세션에는 기본 모드가 적용된다. 시스템 적용 전에는 `pi -e ./pi/extensions/section-navigation/index.ts --tui-mode fullscreen`으로 실행할 수 있다.
+
 ## TUI 구현 기준
 
 새 Node.js/TypeScript 기반 TUI에는 [Ink](https://github.com/vadimdemedes/ink)를 기본으로 사용한다. 탭뿐 아니라 선택·검색창, 설정 화면, 상태 표시 등의 UI 구성에 적용한다. 해당 프로젝트의 기존 UI 스택과 사용자 요구사항을 먼저 확인한다.

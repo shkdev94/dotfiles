@@ -5,6 +5,7 @@
   "shellPath": "/bin/zsh",
   "enableInstallTelemetry": false,
   "editorPaddingX": 1,
+  "tuiMode": "fullscreen",
   "skills": [
     "!**/.agents/skills/**"
   ],

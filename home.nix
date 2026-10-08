@@ -69,6 +69,8 @@ in
     create_symlink "${dotfiles}/pi/extensions/editor.ts";
   home.file.".pi/agent/extensions/nvim.ts".source =
     create_symlink "${dotfiles}/pi/extensions/nvim.ts";
+  home.file.".pi/agent/extensions/section-navigation".source =
+    create_symlink "${dotfiles}/pi/extensions/section-navigation";
   home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
   home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
