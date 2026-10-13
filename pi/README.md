@@ -38,11 +38,23 @@ Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이
 
 스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. Codex용 `~/.agents/skills/`의 중복 자동 로딩은 Pi 설정에서 제외한다. 하위 에이전트에도 저장소 지침과 스킬 목록을 전달한다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
 
-Context7, Figma, browser-use는 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
+Context7, Figma, Vercel, browser-use, Obsidian은 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
 
 Figma는 `figma-remote`(`https://mcp.figma.com/mcp`)를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth figma-remote`로 진행하고, 브라우저에서 Figma 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다.
 
 원격 OAuth의 `clientName`은 `Codex`로 설정했다. 이 이름은 모델 설정과 별개인 OAuth 클라이언트 표시 이름이다. 2026-09-27 실제 연결 검증에서 `Pi Coding Agent`는 등록 단계의 HTTP 403으로 거절됐고, `Codex`는 인증과 원격 연결에 성공해 도구 40개·리소스 116개를 확인했다. [관련 이슈](https://github.com/nicobailon/pi-mcp-adapter/issues/49)의 클라이언트 메타데이터 변경 방식을 이용한다. Figma의 클라이언트 허용 정책이 바뀌면 재확인이 필요하다.
+
+Vercel은 공식 원격 서버 `https://mcp.vercel.com/`를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth vercel`로 진행하고 브라우저에서 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다. Codex의 `dev` 프로필에도 같은 서버를 설정하며, 별도 인증은 `codex --profile dev mcp login vercel`로 진행한다. 설정 파일은 심볼릭 링크로 연결되어 있으므로 `nxr` 없이 반영되며, 기존 Pi 세션에는 `/reload`가 필요하다.
+
+### Obsidian
+
+Obsidian의 `~/projects/obsidian` Vault에 커뮤니티 플러그인 [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-rest-api) 5.4.0을 설치해 내장 MCP 서버를 사용한다. Obsidian이 실행 중이고 플러그인이 활성화되어 있어야 한다. 플러그인 설치·활성화는 Obsidian에서 관리하며, 별도의 npm MCP 서버는 설치하지 않는다.
+
+`obsidian` 서버는 `https://127.0.0.1:27124/mcp/`에 연결한다. HTTP 서버는 비활성화하고 기본 루프백 주소로만 수신한다. 플러그인이 생성한 CA 인증서는 저장소 밖의 `~/.config/obsidian-mcp/ca.crt`에 보관하고 `caFile`로 해당 연결에만 적용한다. 전역 인증서 검증을 끄거나 시스템 신뢰 저장소를 변경하지 않는다. 인증서를 재발급하면 이 CA 파일도 갱신해야 한다.
+
+Pi의 API 키는 `auth: "bearer"`, `bearerTokenStore: true`로 macOS Keychain에 저장한다. 저장소에 키를 기록하지 않는다. 키를 변경할 때는 `~/.pi/agent/packages/pi-mcp-adapter/cli.js token set obsidian`의 숨김 입력을 사용하고, 같은 CLI의 `token status obsidian`으로 저장 상태를 확인한다. 원본 API 키와 인증서 개인 키가 있는 Vault의 `.obsidian/`은 Git에서 제외한다.
+
+노트 읽기·작성·검색 도구를 사용하며, Pi에서는 범용 명령 실행 도구 `command_execute`를 제외한다. 플러그인의 설정 디렉터리 접근 차단은 기본값 그대로 유지한다. 새 연결 설정을 적용하려면 Pi에서 `/reload` 후 `mcp({ connect: "obsidian" })`로 확인한다.
 
 `~/.pi/agent/` 자체는 실제 디렉터리로 유지하고 설정 파일만 home-manager로 연결한다. `packages/`는 Nix가 빌드한 확장 디렉터리에 연결한다. 설정을 수정한 뒤에는 `/reload`로 다시 로드한다.
 
