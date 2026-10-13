@@ -41,7 +41,7 @@ in
 
   programs.gh = {
     enable = true;
-    gitCredentialHelper.enable = false;
+    gitCredentialHelper.enable = true;
     extensions = [
       gh-attach
       pkgs.gh-stack
@@ -128,7 +128,6 @@ in
         name = "sanghyeon";
         email = "sanghyeon.dev@proton.me";
       };
-      credential.helper = "store";
       push = {
         autoSetupRemote = true;
       };
