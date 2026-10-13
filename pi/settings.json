@@ -6,6 +6,9 @@
   "enableInstallTelemetry": false,
   "editorPaddingX": 1,
   "tuiMode": "fullscreen",
+  "subagents": {
+    "disableBuiltins": true
+  },
   "skills": [
     "!**/.agents/skills/**"
   ],
