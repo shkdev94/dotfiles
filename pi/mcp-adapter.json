@@ -14,6 +14,15 @@
         "clientName": "Codex"
       }
     },
+    "spline": {
+      "command": "/Applications/Spline.app/Contents/MacOS/Spline",
+      "args": [
+        "/Applications/Spline.app/Contents/Resources/spline-mcp.cjs"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    },
     "atlassian": {
       "url": "https://mcp.atlassian.com/v2/mcp",
       "auth": "oauth"

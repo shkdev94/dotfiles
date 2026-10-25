@@ -37,6 +37,13 @@ args = ["-y", "@upstash/context7-mcp"]
 [mcp_servers.figma]
 url = "https://mcp.figma.com/mcp"
 
+[mcp_servers.spline]
+command = "/Applications/Spline.app/Contents/MacOS/Spline"
+args = ["/Applications/Spline.app/Contents/Resources/spline-mcp.cjs"]
+
+[mcp_servers.spline.env]
+ELECTRON_RUN_AS_NODE = "1"
+
 [mcp_servers.vercel]
 url = "https://mcp.vercel.com"
 

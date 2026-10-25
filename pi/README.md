@@ -38,13 +38,21 @@ Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이
 
 스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. Codex용 `~/.agents/skills/`의 중복 자동 로딩은 Pi 설정에서 제외한다. 하위 에이전트에도 저장소 지침과 스킬 목록을 전달한다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
 
-Context7, Figma, Vercel, browser-use, Obsidian은 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
+Context7, Figma, Spline, Vercel, browser-use, Obsidian은 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
 
 Figma는 `figma-remote`(`https://mcp.figma.com/mcp`)를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth figma-remote`로 진행하고, 브라우저에서 Figma 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다.
 
 원격 OAuth의 `clientName`은 `Codex`로 설정했다. 이 이름은 모델 설정과 별개인 OAuth 클라이언트 표시 이름이다. 2026-09-27 실제 연결 검증에서 `Pi Coding Agent`는 등록 단계의 HTTP 403으로 거절됐고, `Codex`는 인증과 원격 연결에 성공해 도구 40개·리소스 116개를 확인했다. [관련 이슈](https://github.com/nicobailon/pi-mcp-adapter/issues/49)의 클라이언트 메타데이터 변경 방식을 이용한다. Figma의 클라이언트 허용 정책이 바뀌면 재확인이 필요하다.
 
 Vercel은 공식 원격 서버 `https://mcp.vercel.com/`를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth vercel`로 진행하고 브라우저에서 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다. Codex의 `dev` 프로필에도 같은 서버를 설정하며, 별도 인증은 `codex --profile dev mcp login vercel`로 진행한다. 설정 파일은 심볼릭 링크로 연결되어 있으므로 `nxr` 없이 반영되며, 기존 Pi 세션에는 `/reload`가 필요하다.
+
+### Spline
+
+Spline은 `flake.nix`의 Homebrew cask `spline`으로 설치한다. [공식 데스크톱 MCP](https://docs.spline.design/generate/spline-mcp-server)는 앱에 내장되어 있으므로 별도 npm 서버를 설치하지 않는다.
+
+Pi의 `spline`과 Codex `dev` 프로필은 `/Applications/Spline.app/Contents/MacOS/Spline`을 `ELECTRON_RUN_AS_NODE=1`로 실행하고, `/Applications/Spline.app/Contents/Resources/spline-mcp.cjs`를 인수로 전달하는 stdio 연결을 사용한다. 앱의 로컬 편집기와 통신하며 MCP용 OAuth나 API 키는 필요하지 않다.
+
+Spline 앱에서 로그인하고 **Settings → MCP**의 전역 스위치가 켜져 있는지 확인한 뒤 앱을 실행해 둔다. 도구 목록이 비어 있으면 앱에서 편집기를 열고 다시 연결한다. Pi는 `/reload` 후 `mcp({ connect: "spline" })`로 확인하고, Codex는 재시작한다. 앱을 이동하면 두 클라이언트의 실행 파일·스크립트 경로도 함께 갱신해야 한다.
 
 ### Obsidian
 

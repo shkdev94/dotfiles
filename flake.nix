@@ -196,6 +196,7 @@
               "logi-options+"
               "obsidian"
               "figma"
+              "spline"
               "slack"
             ];
 
