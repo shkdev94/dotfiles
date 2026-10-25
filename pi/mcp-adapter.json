@@ -19,6 +19,11 @@
       "url": "https://mcp.vercel.com/",
       "auth": "oauth"
     },
+    "cloudflare": {
+      "url": "https://mcp.cloudflare.com/mcp",
+      "auth": "oauth",
+      "protocolVersion": "auto"
+    },
     "browser-use": {
       "command": "/run/current-system/sw/bin/browser-use",
       "args": ["--mcp"]
@@ -29,6 +34,10 @@
       "auth": "bearer",
       "bearerTokenStore": true,
       "excludeTools": ["command_execute"]
+    },
+    "supabase": {
+      "url": "https://mcp.supabase.com/mcp",
+      "auth": "oauth"
     }
   },
   "settings": {
