@@ -2,7 +2,7 @@
 # Select with `codex --profile dev` or the `cdx` alias in zshrc.
 # MCP server definitions live in this profile.
 # Account, plugin, and project settings remain in $CODEX_HOME/config.toml.
-model = "gpt-6-sol"
+model = "gpt-6-astra"
 model_reasoning_effort = "xhigh"
 
 # Codex model catalog, checked on 2026-09-24: Astra supports up to 872,000.
@@ -10,6 +10,7 @@ model_reasoning_effort = "xhigh"
 model_context_window = 872000
 # Leave room for instructions, tool results, and the next response.
 model_auto_compact_token_limit = 800000
+service_tier = "default"
 
 [tui]
 status_line = [
@@ -23,6 +24,7 @@ status_line = [
 
 [tui.model_availability_nux]
 gpt-6-astra = 4
+"gpt-6.1-sol" = 4
 
 [agents]
 enabled = true
@@ -35,6 +37,15 @@ args = ["-y", "@upstash/context7-mcp"]
 [mcp_servers.figma]
 url = "https://mcp.figma.com/mcp"
 
+[mcp_servers.vercel]
+url = "https://mcp.vercel.com"
+
 [mcp_servers.browser-use]
 command = "/run/current-system/sw/bin/browser-use"
 args = ["--mcp"]
+
+[notice]
+hide_rate_limit_model_nudge = true
+
+[projects."/Users/sanghyeon/projects/oneable/radian"]
+trust_level = "trusted"
