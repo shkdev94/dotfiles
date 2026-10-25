@@ -2,7 +2,10 @@
   "mcpServers": {
     "context7": {
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     },
     "figma-remote": {
       "url": "https://mcp.figma.com/mcp",
@@ -26,14 +29,21 @@
     },
     "browser-use": {
       "command": "/run/current-system/sw/bin/browser-use",
-      "args": ["--mcp"]
+      "args": [
+        "--mcp"
+      ]
     },
     "obsidian": {
       "url": "https://127.0.0.1:27124/mcp/",
       "caFile": "~/.config/obsidian-mcp/ca.crt",
       "auth": "bearer",
       "bearerTokenStore": true,
-      "excludeTools": ["command_execute"]
+      "excludeTools": [
+        "command_execute"
+      ]
+    },
+    "vultr": {
+      "url": "https://mcp.vultr.com/mcp"
     },
     "supabase": {
       "url": "https://mcp.supabase.com/mcp",
