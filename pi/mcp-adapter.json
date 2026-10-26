@@ -57,6 +57,69 @@
     "supabase": {
       "url": "https://mcp.supabase.com/mcp",
       "auth": "oauth"
+    },
+    "gmail": {
+      "url": "https://gmailmcp.googleapis.com/mcp/v1",
+      "auth": "oauth",
+      "oauth": {
+        "clientId": "1080160692227-ovndnsf2otnotjs6fm0jdqvk8op7609v.apps.googleusercontent.com",
+        "clientSecret": "!python3 -c 'import json;from pathlib import Path;print(json.loads((Path.home()/\".config/mcp/credentials/google-workspace-oauth.json\").read_text())[\"web\"][\"client_secret\"])'",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "authorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
+        "redirectUri": "http://localhost:19876/callback",
+        "authServerMetadataUrl": "https://accounts.google.com/.well-known/openid-configuration"
+      },
+      "includeTools": [
+        "*search_threads",
+        "*get_message",
+        "*get_thread",
+        "*list_drafts",
+        "*list_labels"
+      ]
+    },
+    "drive": {
+      "url": "https://drivemcp.googleapis.com/mcp/v1",
+      "auth": "oauth",
+      "oauth": {
+        "clientId": "1080160692227-ovndnsf2otnotjs6fm0jdqvk8op7609v.apps.googleusercontent.com",
+        "clientSecret": "!python3 -c 'import json;from pathlib import Path;print(json.loads((Path.home()/\".config/mcp/credentials/google-workspace-oauth.json\").read_text())[\"web\"][\"client_secret\"])'",
+        "scope": "https://www.googleapis.com/auth/drive.readonly",
+        "authorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
+        "redirectUri": "http://localhost:19876/callback",
+        "authServerMetadataUrl": "https://accounts.google.com/.well-known/openid-configuration"
+      },
+      "includeTools": [
+        "*search_files",
+        "*list_recent_files",
+        "*get_file_metadata",
+        "*get_file_permissions",
+        "*read_file_content",
+        "*download_file_content"
+      ]
+    },
+    "docs": {
+      "url": "https://docsmcp.googleapis.com/mcp/v1",
+      "auth": "oauth",
+      "oauth": {
+        "clientId": "1080160692227-ovndnsf2otnotjs6fm0jdqvk8op7609v.apps.googleusercontent.com",
+        "clientSecret": "!python3 -c 'import json;from pathlib import Path;print(json.loads((Path.home()/\".config/mcp/credentials/google-workspace-oauth.json\").read_text())[\"web\"][\"client_secret\"])'",
+        "scope": "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly",
+        "authorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
+        "redirectUri": "http://localhost:19876/callback",
+        "authServerMetadataUrl": "https://accounts.google.com/.well-known/openid-configuration"
+      },
+      "includeTools": [
+        "*read_doc"
+      ]
     }
   },
   "settings": {

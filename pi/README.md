@@ -46,6 +46,16 @@ Figma는 `figma-remote`(`https://mcp.figma.com/mcp`)를 사용한다. 최초 로
 
 Vercel은 공식 원격 서버 `https://mcp.vercel.com/`를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth vercel`로 진행하고 브라우저에서 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다. Codex의 `dev` 프로필에도 같은 서버를 설정하며, 별도 인증은 `codex --profile dev mcp login vercel`로 진행한다. 설정 파일은 심볼릭 링크로 연결되어 있으므로 `nxr` 없이 반영되며, 기존 Pi 세션에는 `/reload`가 필요하다.
 
+### Google Workspace
+
+Google 공식 원격 MCP의 `gmail`, `drive`, `docs`를 `mcp-adapter.json`에 설정한다. `home.nix`가 이 원본을 `~/.pi/agent/mcp-adapter.json`에 연결하므로 별도 전역 MCP 설정이나 `nxr` 없이 Pi의 `/reload`로 반영된다. Developer Preview Program에서 Workspace 계정과 Google Cloud 프로젝트 등록을 완료하고, 사용할 Gmail·Drive·Docs API와 각 MCP API를 활성화해야 한다.
+
+Google Auth Platform에서 웹 애플리케이션 OAuth 클라이언트를 만들고 **Use this client for an AI-powered agent**를 선택한다. 승인된 리디렉션 URI는 `http://localhost:19876/callback`로 등록한다. Client ID는 공개 식별자로 설정에 기록하며, Client Secret은 `!python3` 명령이 저장소 밖의 `~/.config/mcp/credentials/google-workspace-oauth.json`에서 실행 시 읽는다. 이 파일은 Google에서 다운로드한 `web` 형식의 OAuth JSON이며, 부모 credentials 디렉터리는 권한 `700`, 파일은 `600`으로 유지한다. JSON 원문과 비밀값은 dotfiles나 Nix store에 넣지 않는다. Python은 기존 mise 환경을 사용한다.
+
+현재는 읽기 전용 OAuth scope와 도구만 노출한다. Gmail은 메일 검색·조회, Drive는 파일 검색·조회·다운로드, Docs는 문서 읽기를 지원하며 생성·편집·발송·공유 도구는 노출하지 않는다. 인증 요청에 `access_type=offline`, `prompt=consent`를 넣어 refresh token을 요청한다. 발급된 인증 토큰은 어댑터가 macOS Keychain에 보관하며 저장소에 포함하지 않는다.
+
+Pi에서 `/reload`한 뒤 `/mcp-auth gmail`, `/mcp-auth drive`, `/mcp-auth docs`를 하나씩 실행하고, 각각 브라우저에서 프리뷰 승인을 받은 Workspace 계정으로 접근을 승인한다. 동일한 콜백 포트를 사용하므로 한 인증을 마친 뒤 다음 인증을 진행한다. 설정과 공개 도구 목록 확인은 사용자 데이터 접근 검증을 대신하지 않으며, 실제 조회는 OAuth 로그인 후 별도로 확인한다.
+
 ### Spline
 
 Spline은 `flake.nix`의 Homebrew cask `spline`으로 설치한다. [공식 데스크톱 MCP](https://docs.spline.design/generate/spline-mcp-server)는 앱에 내장되어 있으므로 별도 npm 서버를 설치하지 않는다.
