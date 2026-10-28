@@ -31,8 +31,9 @@ buildNpmPackage {
     host=${pi-coding-agent}/lib/node_modules/pi-monorepo
     modules="$out/share/pi-extensions/node_modules"
     mkdir -p "$modules/@earendil-works"
-    for package in pi-ai pi-tui pi-agent-core pi-client pi-protocol pi-telemetry; do
-      ln -s "$host/node_modules/@earendil-works/$package" "$modules/@earendil-works/$package"
+    # SDK packages can be added or removed between host releases.
+    for package in "$host"/node_modules/@earendil-works/pi-*; do
+      ln -s "$package" "$modules/@earendil-works/$(basename "$package")"
     done
     ln -s "$host" "$modules/@earendil-works/pi-coding-agent"
     ln -s "$host/node_modules/typebox" "$modules/typebox"
