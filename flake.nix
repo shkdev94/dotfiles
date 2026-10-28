@@ -36,10 +36,6 @@
       url = "github:homebrew/homebrew-cask";
       flake = false;
     };
-    homebrew-orca = {
-      url = "github:stablyai/homebrew-orca";
-      flake = false;
-    };
   };
 
   outputs =
@@ -51,7 +47,6 @@
       nix-homebrew,
       homebrew-core,
       homebrew-cask,
-      homebrew-orca,
       pyproject-nix,
       uv2nix,
       pyproject-build-systems,
@@ -162,7 +157,6 @@
             taps = {
               "homebrew/homebrew-core" = homebrew-core;
               "homebrew/homebrew-cask" = homebrew-cask;
-              "stablyai/homebrew-orca" = homebrew-orca;
             };
 
             mutableTaps = false;
@@ -182,7 +176,6 @@
             ];
 
             casks = [
-              "stablyai/orca/orca"
               "ghostty"
               "google-chrome"
               "visual-studio-code"
