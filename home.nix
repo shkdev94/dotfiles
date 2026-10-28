@@ -48,14 +48,6 @@ in
     ];
   };
 
-  home.file.".codex/dev.config.toml".source = create_symlink "${dotfiles}/codex/config.toml";
-  home.file.".codex/agents".source = create_symlink "${dotfiles}/codex/agents";
-
-  home.file.".agents/skills" = {
-    source = create_symlink "${dotfiles}/codex/skills";
-    force = true;
-  };
-
   home.file.".pi/agent/settings.json".source = create_symlink "${dotfiles}/pi/settings.json";
   home.file.".pi/agent/themes/atom-one-dark.json" = {
     source = create_symlink "${dotfiles}/pi/themes/atom-one-dark.json";
@@ -95,11 +87,6 @@ in
 
   xdg.configFile."nvim" = {
     source = create_symlink "${dotfiles}/nvim";
-    force = true;
-  };
-
-  xdg.configFile."tmux" = {
-    source = create_symlink "${dotfiles}/tmux";
     force = true;
   };
 

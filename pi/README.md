@@ -8,7 +8,7 @@ Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리하
 
 ## Neovim 통합
 
-Pi TUI는 tmux 등 Neovim 바깥에서 실행한다. `extensions/nvim.ts`는 실행 중인 각 Pi TUI에 사용자 전용 로컬 소켓을 열고 작업 디렉터리·세션 ID·이름을 `/tmp/pi-nvim-<uid>/`에 등록한다. Neovim은 같은 작업 디렉터리의 살아 있는 세션만 조회한다. 세션이 하나면 기존 질문 입력창을 쓰고, 여러 개면 질문 입력칸과 그 아래의 세션 목록을 한 화면에 표시한다. 입력한 질문은 목록 검색에 사용하지 않으며, `↑`·`↓` 또는 `Tab`·`Shift-Tab`으로 대상을 고르고 `Enter`로 전송한다. `Esc`는 취소하며, 빈 질문은 전송하지 않는다. 해당 디렉터리에 세션이 없으면 다른 프로젝트나 새 Pi로 자동 전환하지 않는다. 기존 Pi를 재시작하거나 `/reload`한 뒤 사용한다.
+Pi TUI는 Ghostty의 별도 탭·분할 창 등 Neovim 바깥에서 실행한다. `extensions/nvim.ts`는 실행 중인 각 Pi TUI에 사용자 전용 로컬 소켓을 열고 작업 디렉터리·세션 ID·이름을 `/tmp/pi-nvim-<uid>/`에 등록한다. Neovim은 같은 작업 디렉터리의 살아 있는 세션만 조회한다. 세션이 하나면 기존 질문 입력창을 쓰고, 여러 개면 질문 입력칸과 그 아래의 세션 목록을 한 화면에 표시한다. 입력한 질문은 목록 검색에 사용하지 않으며, `↑`·`↓` 또는 `Tab`·`Shift-Tab`으로 대상을 고르고 `Enter`로 전송한다. `Esc`는 취소하며, 빈 질문은 전송하지 않는다. 해당 디렉터리에 세션이 없으면 다른 프로젝트나 새 Pi로 자동 전환하지 않는다. 기존 Pi를 재시작하거나 `/reload`한 뒤 사용한다.
 
 - `<leader>pa` 또는 `:PiAsk`: 일반 모드에서는 현재 파일 전체(저장 전 버퍼 내용 포함), Visual 모드에서는 선택한 코드로 질문한다. 진단은 포함하지 않는다.
 - `<leader>pd`: 기존 진단 전송 방식대로 일반 모드에서는 커서 위치, Visual 모드에서는 선택 영역에 해당하는 오류·경고를 더한다. 진단이 없으면 생략한다. 두 단축키 모두 `multicursor.nvim`의 다중 선택을 지원한다.
@@ -30,13 +30,13 @@ Neovim은 Pi 프로세스를 생성하거나 Pi 화면을 관리하지 않는다
 
 Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이름을 붙인다. 다른 계정도 같은 메뉴에서 추가한다. **Switch … account**로 현재 세션의 계정을 전환하고, **Set default account**로 새 세션의 기본 계정을 선택한다. 기존 세션은 자신의 계정 선택을 유지한다. 기본 Pi 로그인은 `/login`에서도 가능하다.
 
-인증 정보는 `~/.pi/agent/auth.json`과 `~/.pi/agent/pi-accounts.json`에 저장되며 dotfiles에 연결하거나 커밋하지 않는다. 기존 Codex CLI의 계정 전환과는 별도로 관리한다.
+인증 정보는 `~/.pi/agent/auth.json`과 `~/.pi/agent/pi-accounts.json`에 저장되며 dotfiles에 연결하거나 커밋하지 않는다. Pi가 인증과 계정 전환을 직접 관리한다.
 
 ## 에이전트·스킬·MCP
 
 `pi-subagents`의 `subagents_enable`·`subagent` 도구로 implementer, reviewer, review_fixer, issue_writer에게 위임한다. 예: “reviewer에게 현재 diff 리뷰를 맡겨줘”. 최대 동시 실행은 5개로 설정했다. reviewer의 코드 수정 금지 지침을 유지한다.
 
-스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. Codex용 `~/.agents/skills/`의 중복 자동 로딩은 Pi 설정에서 제외한다. 하위 에이전트에도 저장소 지침과 스킬 목록을 전달한다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
+스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. 공용 `~/.agents/skills/` 경로의 중복 자동 로딩은 Pi 설정에서 제외한다. 하위 에이전트에도 저장소 지침과 스킬 목록을 전달한다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
 
 Context7, Figma, Spline, Vercel, browser-use, Obsidian은 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
 
@@ -44,7 +44,7 @@ Figma는 `figma-remote`(`https://mcp.figma.com/mcp`)를 사용한다. 최초 로
 
 원격 OAuth의 `clientName`은 `Codex`로 설정했다. 이 이름은 모델 설정과 별개인 OAuth 클라이언트 표시 이름이다. 2026-09-27 실제 연결 검증에서 `Pi Coding Agent`는 등록 단계의 HTTP 403으로 거절됐고, `Codex`는 인증과 원격 연결에 성공해 도구 40개·리소스 116개를 확인했다. [관련 이슈](https://github.com/nicobailon/pi-mcp-adapter/issues/49)의 클라이언트 메타데이터 변경 방식을 이용한다. Figma의 클라이언트 허용 정책이 바뀌면 재확인이 필요하다.
 
-Vercel은 공식 원격 서버 `https://mcp.vercel.com/`를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth vercel`로 진행하고 브라우저에서 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다. Codex의 `dev` 프로필에도 같은 서버를 설정하며, 별도 인증은 `codex --profile dev mcp login vercel`로 진행한다. 설정 파일은 심볼릭 링크로 연결되어 있으므로 `nxr` 없이 반영되며, 기존 Pi 세션에는 `/reload`가 필요하다.
+Vercel은 공식 원격 서버 `https://mcp.vercel.com/`를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth vercel`로 진행하고 브라우저에서 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다. 설정 파일은 심볼릭 링크로 연결되어 있으므로 `nxr` 없이 반영되며, 기존 Pi 세션에는 `/reload`가 필요하다.
 
 ### Google Workspace
 
@@ -60,9 +60,9 @@ Pi에서 `/reload`한 뒤 `/mcp-auth gmail`, `/mcp-auth drive`, `/mcp-auth docs`
 
 Spline은 `flake.nix`의 Homebrew cask `spline`으로 설치한다. [공식 데스크톱 MCP](https://docs.spline.design/generate/spline-mcp-server)는 앱에 내장되어 있으므로 별도 npm 서버를 설치하지 않는다.
 
-Pi의 `spline`과 Codex `dev` 프로필은 `/Applications/Spline.app/Contents/MacOS/Spline`을 `ELECTRON_RUN_AS_NODE=1`로 실행하고, `/Applications/Spline.app/Contents/Resources/spline-mcp.cjs`를 인수로 전달하는 stdio 연결을 사용한다. 앱의 로컬 편집기와 통신하며 MCP용 OAuth나 API 키는 필요하지 않다.
+Pi의 `spline` 서버는 `/Applications/Spline.app/Contents/MacOS/Spline`을 `ELECTRON_RUN_AS_NODE=1`로 실행하고, `/Applications/Spline.app/Contents/Resources/spline-mcp.cjs`를 인수로 전달하는 stdio 연결을 사용한다. 앱의 로컬 편집기와 통신하며 MCP용 OAuth나 API 키는 필요하지 않다.
 
-Spline 앱에서 로그인하고 **Settings → MCP**의 전역 스위치가 켜져 있는지 확인한 뒤 앱을 실행해 둔다. 도구 목록이 비어 있으면 앱에서 편집기를 열고 다시 연결한다. Pi는 `/reload` 후 `mcp({ connect: "spline" })`로 확인하고, Codex는 재시작한다. 앱을 이동하면 두 클라이언트의 실행 파일·스크립트 경로도 함께 갱신해야 한다.
+Spline 앱에서 로그인하고 **Settings → MCP**의 전역 스위치가 켜져 있는지 확인한 뒤 앱을 실행해 둔다. 도구 목록이 비어 있으면 앱에서 편집기를 열고 다시 연결한다. Pi는 `/reload` 후 `mcp({ connect: "spline" })`로 확인한다. 앱을 이동하면 `mcp-adapter.json`의 실행 파일·스크립트 경로도 함께 갱신해야 한다.
 
 ### Obsidian
 

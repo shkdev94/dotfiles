@@ -156,7 +156,7 @@ test("세션을 바꾸면 이전 소켓을 없애고 종료 핸들러를 중복 
 });
 
 test("RPC 하위 에이전트는 TUI 전송 대상으로 등록하지 않는다", async (t) => {
-  // 자동 생성된 RPC 하위 에이전트는 사용자가 연 tmux TUI가 아니다.
+  // 자동 생성된 RPC 하위 에이전트는 사용자가 직접 연 Pi TUI가 아니다.
   const bridge = await startBridge(t, "rpc");
 
   // 세션 시작 후 탐색 결과를 확인한다.

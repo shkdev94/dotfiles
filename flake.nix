@@ -67,7 +67,6 @@
             pyproject-build-systems
             ;
         };
-      codexAuth = pkgs: pkgs.callPackage ./packages/node/codex-auth { };
       piAgent =
         pkgs:
         pkgs.symlinkJoin {
@@ -83,7 +82,6 @@
           environment.systemPackages = with pkgs; [
             vim
             neovim
-            tmux
             lazygit
             lazydocker
             ripgrep
@@ -102,7 +100,6 @@
             corepack
             uv
             (browserUse pkgs)
-            (codexAuth pkgs)
             (piAgent pkgs)
             awscli2
             gh
@@ -191,7 +188,6 @@
               "visual-studio-code"
               "android-studio"
               "aldente"
-              "codex"
               "karabiner-elements"
               "logi-options+"
               "obsidian"
@@ -210,7 +206,6 @@
     in
     {
       packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
-      packages.aarch64-darwin.codex-auth = codexAuth nixpkgs.legacyPackages.aarch64-darwin;
       packages.aarch64-darwin.pi = piAgent nixpkgs.legacyPackages.aarch64-darwin;
 
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {

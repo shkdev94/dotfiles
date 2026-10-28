@@ -9,15 +9,13 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `flake.nix` — 시스템 패키지, macOS 기본 설정, Homebrew(brews/casks/masApps), nix-darwin 설정을 정의하는 메인 flake
 - `home.nix` — 사용자 프로그램(zsh, git, vim) 설정과 `mkOutOfStoreSymlink`를 이용한 dotfile 심볼릭 링크를 관리하는 home-manager 설정
 - `nvim/` — Neovim 설정, LSP 및 플러그인 설정. `lua/pi/`와 `plugin/pi.lua`는 같은 작업 디렉터리에서 실행 중인 외부 Pi 세션으로 파일·선택 영역·진단과 질문을 전송한다.
-- `tmux/` — Git worktree Workspace 사이드바와 tmux 설정
 - `zshrc` — home-manager의 `initContent`로 불러오는 Zsh 설정. 별칭, 환경 변수, mise 활성화 설정 포함
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
-- `codex/` — CLI의 `dev` 프로필과 MCP 서버 설정을 `config.toml`에서 관리하고 `~/.codex/dev.config.toml`에 연결. `cdx` 별칭으로 프로필과 승인·샌드박스 우회 옵션을 함께 사용하며, `agents/`는 `~/.codex/agents/`, `skills/`는 `~/.agents/skills/`에 연결한다.
 - `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `extensions/`의 UI 확장, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
-- `codex/skills/`, `pi/skills/` — 각 클라이언트의 독립적인 스킬 복사본. 에이전트도 클라이언트별 형식에 맞게 `codex/agents/*.toml`, `pi/agents/*.md`로 각각 관리한다.
+- `pi/skills/` — Pi 전용 스킬. 에이전트는 `pi/agents/*.md` 형식으로 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
@@ -65,14 +63,13 @@ Corepack은 `flake.nix`의 `environment.systemPackages`로 설치한다. Nix 패
 
 npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정하고, npm으로 `package-lock.json`을 생성한다. `buildNpmPackage`로 패키징하며 `importNpmLock`이 lock 파일의 무결성 해시로 의존성을 가져온다. 실행에 필요한 Node는 패키지 내부 의존성으로 포함하고, 직접 사용하는 Node 버전은 mise로 관리한다.
 
-버전 변경 후 해당 패키지 폴더에서 `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`로 lock 파일을 갱신한다. `package-lock.json`은 직접 편집하지 않는다. 저장소 루트에서 `nix build .#codex-auth`로 빌드·버전을 검증하고, `nxr`로 시스템에 적용한다.
+버전 변경 후 해당 패키지 폴더에서 `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`로 lock 파일을 갱신한다. `package-lock.json`은 직접 편집하지 않는다. 저장소 루트에서 해당 flake 패키지를 빌드·검증하고, `nxr`로 시스템에 적용한다.
 
 ## 작업 규칙
 
 - CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
 - Mac App Store 앱은 `homebrew.masApps`에 추가한다. 형식은 `이름 = App Store ID`이다.
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
-- 필요한 MCP 서버는 `codex/config.toml`의 `[mcp_servers.<name>]`에 직접 추가한다. 이 저장소에서 관리하는 MCP 설정은 `codex mcp add`로 계정별 설정에 별도 등록하지 않는다.
 - Pi MCP는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 CLI를 덮어쓰지 않는다. 확장은 `packages/node/pi-extensions/package.json`의 버전을 수정한 뒤 같은 폴더에서 `npm install --package-lock-only --legacy-peer-deps --ignore-scripts --no-audit --no-fund`로 잠금을 갱신하고 `nix build .#pi`로 검증한다. 확장의 peer SDK는 Nix Pi CLI와 공유한다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
