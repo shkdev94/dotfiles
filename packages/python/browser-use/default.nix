@@ -19,9 +19,29 @@ let
         ]
       );
   inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
-in
-# Expose only browser-use's commands; its Python stays private to this package.
-mkApplication {
   venv = pythonSet.mkVirtualEnv "browser-use-env" { browser-use = [ ]; };
-  package = pythonSet.browser-use;
+  application = mkApplication {
+    inherit venv;
+    package = pythonSet.browser-use;
+  };
+  mcpLauncher = pkgs.writeShellScriptBin "browser-use-mcp" ''
+    exec ${venv}/bin/python ${./mcp-launcher.py} "$@"
+  '';
+in
+# Expose browser-use and its isolated MCP launcher, but not the private Python.
+pkgs.symlinkJoin {
+  name = application.name;
+  paths = [
+    application
+    mcpLauncher
+  ];
+  meta = application.meta;
+  postBuild = ''
+    export BROWSER_USE_CONFIG_DIR="$TMPDIR/browser-use-test-config"
+    export ANONYMIZED_TELEMETRY=false
+    export BROWSER_USE_CLOUD_SYNC=false
+    export PYTHONDONTWRITEBYTECODE=1
+    ${venv}/bin/python -m unittest discover \
+      --start-directory ${./.} --pattern test_mcp_launcher.py --verbose
+  '';
 }

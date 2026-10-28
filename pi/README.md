@@ -40,6 +40,8 @@ Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이
 
 Context7, Figma, Spline, Vercel, browser-use, Obsidian은 `pi-mcp-adapter`로 연결한다. `/mcp-adapter`에서 확인하고, 모델은 `mcp` 도구로 필요한 서버 도구를 검색·호출한다. 서버는 필요할 때 연결된다.
 
+Browser Use runs through the dotfiles-owned `browser-use-mcp` launcher: headless Google Chrome, a fresh SDK-managed temporary profile per browser session, and cleanup on client disconnect. The upstream MCP tools remain unchanged. Build and activate the Nix package before reloading Pi; see [the launcher documentation](../packages/python/browser-use/README.md) for lifecycle, authentication, and verification details.
+
 Figma는 `figma-remote`(`https://mcp.figma.com/mcp`)를 사용한다. 최초 로그인이나 재인증은 `/mcp-auth figma-remote`로 진행하고, 브라우저에서 Figma 접근을 승인한다. OAuth 인증은 macOS Keychain에 저장되며 저장소에 포함하지 않는다.
 
 원격 OAuth의 `clientName`은 `Codex`로 설정했다. 이 이름은 모델 설정과 별개인 OAuth 클라이언트 표시 이름이다. 2026-09-27 실제 연결 검증에서 `Pi Coding Agent`는 등록 단계의 HTTP 403으로 거절됐고, `Codex`는 인증과 원격 연결에 성공해 도구 40개·리소스 116개를 확인했다. [관련 이슈](https://github.com/nicobailon/pi-mcp-adapter/issues/49)의 클라이언트 메타데이터 변경 방식을 이용한다. Figma의 클라이언트 허용 정책이 바뀌면 재확인이 필요하다.

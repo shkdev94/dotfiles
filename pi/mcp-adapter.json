@@ -37,10 +37,7 @@
       "protocolVersion": "auto"
     },
     "browser-use": {
-      "command": "/run/current-system/sw/bin/browser-use",
-      "args": [
-        "--mcp"
-      ]
+      "command": "/run/current-system/sw/bin/browser-use-mcp"
     },
     "obsidian": {
       "url": "https://127.0.0.1:27124/mcp/",
