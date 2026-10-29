@@ -8,13 +8,13 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 
 - `flake.nix` — 시스템 패키지, macOS 기본 설정, Homebrew(brews/casks/masApps), nix-darwin 설정을 정의하는 메인 flake
 - `home.nix` — 사용자 프로그램(zsh, git, vim) 설정과 `mkOutOfStoreSymlink`를 이용한 dotfile 심볼릭 링크를 관리하는 home-manager 설정
-- `nvim/` — Neovim 설정, LSP 및 플러그인 설정. `lua/pi/`와 `plugin/pi.lua`는 같은 작업 디렉터리에서 실행 중인 외부 Pi 세션으로 파일·선택 영역·진단과 질문을 전송한다.
+- `nvim/` — Neovim 설정, LSP 및 플러그인 설정. `lua/pi/`와 `plugin/pi.lua`의 외부 Pi 전송 클라이언트는 남아 있지만, 현재 Pi 구성에는 대상 소켓 서버 확장이 없다.
 - `zshrc` — home-manager의 `initContent`로 불러오는 Zsh 설정. 별칭, 환경 변수, mise 활성화 설정 포함
 - `karabiner.json` — Karabiner Elements 설정. home-manager를 통해 `~/.config/karabiner/`에 심볼릭 링크로 연결
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
-- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `extensions/`의 UI 확장, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
+- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
 - `pi/skills/` — Pi 전용 스킬. 에이전트는 `pi/agents/*.md` 형식으로 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
