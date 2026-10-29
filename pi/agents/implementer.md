@@ -8,7 +8,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritGlobalContext: true
 inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/@narumitw/pi-accounts/dist/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
 ---
 
 너는 실제 구현을 담당한다. 부모가 전달한 사용자 요청, 요구사항, 담당 파일과 완료 기준을 먼저 확인한다.

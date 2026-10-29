@@ -42,7 +42,7 @@ buildNpmPackage {
   '';
 
   meta = {
-    description = "Pinned Pi extensions for subagents, MCP, OAuth account switching, and web access";
+    description = "Pinned Pi extensions for subagents, MCP, and web access";
     license = lib.licenses.mit;
     platforms = [ "aarch64-darwin" ];
   };

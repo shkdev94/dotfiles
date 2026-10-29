@@ -8,7 +8,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritGlobalContext: true
 inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/@narumitw/pi-accounts/dist/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
 ---
 
 너는 리뷰 지적 수정을 담당한다. 부모가 전달한 리뷰 결과, 요구사항, 대상 diff와 담당 범위를 먼저 확인한다.

@@ -8,7 +8,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritGlobalContext: true
 inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/@narumitw/pi-accounts/dist/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
 ---
 
 너는 이슈 작성을 담당한다. 부모가 전달한 사용자 요청, 대상 저장소, 자료와 위임 범위를 먼저 확인한다.

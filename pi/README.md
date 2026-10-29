@@ -23,9 +23,9 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 
 고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가했다. Sol·Astra의 컨텍스트 예산은 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
 
-Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이름을 붙인다. 다른 계정도 같은 메뉴에서 추가한다. **Switch … account**로 현재 세션의 계정을 전환하고, **Set default account**로 새 세션의 기본 계정을 선택한다. 기존 세션은 자신의 계정 선택을 유지한다. 기본 Pi 로그인은 `/login`에서도 가능하다.
+Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. 별도의 계정 전환 확장은 사용하지 않는다.
 
-인증 정보는 `~/.pi/agent/auth.json`과 `~/.pi/agent/pi-accounts.json`에 저장되며 dotfiles에 연결하거나 커밋하지 않는다. Pi가 인증과 계정 전환을 직접 관리한다.
+인증 정보는 `~/.pi/agent/auth.json`에 저장되며 dotfiles에 연결하거나 커밋하지 않는다. 인증은 Pi의 기본 기능으로 관리한다.
 
 ## 프롬프트 명령어
 
@@ -111,7 +111,4 @@ Pi 확장 안에서는 Ink로 구성한 화면을 Pi의 `render(width)`·입력 
 | --- | --- | ---: | --- |
 | 하위 에이전트 | [pi-subagents](https://github.com/nicobailon/pi-subagents) | 3,773 | tintinweb/pi-subagents: 1,218 |
 | MCP 연결 | [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) | 1,551 | pi-mcp-adapter-v2: 2 |
-| 계정 전환 | [@narumitw/pi-accounts](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-accounts) | 소속 모노레포 625 | pi-multi-pass: 507, pi-multi-account: 24, pi-codex-account: 11 |
 | 웹 검색·본문 읽기 | [pi-web-access](https://github.com/nicobailon/pi-web-access) | 1,544 | ttttmr/pi-web-search: 30, Evizero/pi-codex-web-search: 1 |
-
-계정 전환에는 수동 선택과 세션별 계정 유지 기능을 사용한다. 사용량에 따른 자동 계정 순환은 포함하지 않는다.
