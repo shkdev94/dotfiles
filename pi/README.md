@@ -32,6 +32,20 @@ Pi 안에서 `/accounts`를 실행하고 OpenAI Codex 계정에 로그인해 이
 
 인증 정보는 `~/.pi/agent/auth.json`과 `~/.pi/agent/pi-accounts.json`에 저장되며 dotfiles에 연결하거나 커밋하지 않는다. Pi가 인증과 계정 전환을 직접 관리한다.
 
+## 프롬프트 명령어
+
+`pi/prompts/*.md`를 home-manager로 `~/.pi/agent/prompts/`에 연결한다. 파일명이 명령어 이름이 되며, `sync-branch.md`는 `/sync-branch`로 호출한다.
+
+```text
+/sync-branch
+/sync-branch origin/develop
+/sync-branch --rebase origin/develop
+```
+
+`sync-branch`는 현재 브랜치에 기준 브랜치의 변경을 반영한다. 이미 최신이면 종료하고, fast-forward가 가능하면 그대로 이동한다. 이력이 갈라졌으면 기본은 merge이며, `--rebase`를 명시했을 때만 rebase한다. 기준 ref를 생략하면 PR base와 작업 맥락을 확인하고, 불명확하면 질문한다. 미커밋 변경과 진행 중인 Git 작업을 임의로 처리하지 않으며, 복구용 브랜치를 만든 뒤 최신화하고 검증한다. push나 자식 브랜치 전체 갱신은 포함하지 않는다.
+
+옵션은 실행 코드가 아닌 프롬프트 인수다. 에이전트가 해석하므로 코드 수준의 옵션 검증이나 안전 경계를 제공하지 않는다. 처음 연결을 추가한 뒤에는 `nxr`로 적용하고 Pi에서 `/reload`한다. 이후 프롬프트 수정은 `/reload`만 하면 된다.
+
 ## 에이전트·스킬·MCP
 
 `pi-subagents`의 `subagents_enable`·`subagent` 도구로 implementer, reviewer, review_fixer, issue_writer에게 위임한다. 예: “reviewer에게 현재 diff 리뷰를 맡겨줘”. 최대 동시 실행은 5개로 설정했다. reviewer의 코드 수정 금지 지침을 유지한다.

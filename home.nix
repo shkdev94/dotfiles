@@ -66,6 +66,7 @@ in
   home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
   home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
+  home.file.".pi/agent/prompts".source = create_symlink "${dotfiles}/pi/prompts";
   home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
   home.file.".pi/agent/extensions/subagent/config.json".source =
     create_symlink "${dotfiles}/pi/subagents.json";
