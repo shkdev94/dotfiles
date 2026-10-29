@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "pi-mcp-adapter": "3.0.0",
-    "pi-subagents": "0.72.1",
+    "pi-subagents": "0.84.0",
     "pi-web-access": "0.32.0"
   }
 }
