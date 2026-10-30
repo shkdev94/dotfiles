@@ -6,16 +6,8 @@
   "enableInstallTelemetry": false,
   "editorPaddingX": 1,
   "tuiMode": "fullscreen",
-  "subagents": {
-    "disableBuiltins": true
-  },
   "skills": [
     "!**/.agents/skills/**"
-  ],
-  "packages": [
-    "./packages/pi-subagents",
-    "./packages/pi-mcp-adapter",
-    "./packages/pi-web-access"
   ],
   "lastChangelogVersion": "0.86.1",
   "theme": "atom-one-dark"

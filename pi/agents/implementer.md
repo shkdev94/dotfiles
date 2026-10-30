@@ -3,12 +3,8 @@ description: "이슈와 명세를 구현하고, 관련 테스트·빌드로 검�
 name: implementer
 model: openai-codex/gpt-6-sol
 thinking: xhigh
-advertise: true
-systemPromptMode: append
-inheritProjectContext: true
-inheritGlobalContext: true
-inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+skills: [write-good-code, work-with-evidence, implement-issue, verify-changes]
+tools: [read, bash, edit, write, grep, find, ls, "mcp*", "web_*", fetch_content, get_search_content, source_check]
 ---
 
 너는 실제 구현을 담당한다. 부모가 전달한 사용자 요청, 요구사항, 담당 파일과 완료 기준을 먼저 확인한다.

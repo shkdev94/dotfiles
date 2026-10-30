@@ -60,7 +60,8 @@ Until the new files are tracked by Git, activate with
 `sudo darwin-rebuild switch --flake "path:$HOME/.dotfiles#mbp"` instead of `nxr`
 so Nix includes those files.
 
-Pi's `pi/mcp-adapter.json` selects
-`/run/current-system/sw/bin/browser-use-mcp`. After activation, use Pi's `/reload`.
+Radian's built-in MCP uses `pi/mcp-adapter.json` to select
+`/run/current-system/sw/bin/browser-use-mcp`. After activation, reload Radian's
+MCP configuration. Standalone Pi no longer installs the former MCP adapter.
 Changing the linked client configuration alone does not install the new command.
 No Python dependency or lock-file update is required.

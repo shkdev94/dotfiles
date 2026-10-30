@@ -3,12 +3,8 @@ description: "리뷰 지적의 타당성을 확인하고, 필요한 코드 수�
 name: review_fixer
 model: openai-codex/gpt-6-sol
 thinking: xhigh
-advertise: true
-systemPromptMode: append
-inheritProjectContext: true
-inheritGlobalContext: true
-inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+skills: [write-good-code, work-with-evidence, verify-changes]
+tools: [read, bash, edit, write, grep, find, ls, "mcp*", "web_*", fetch_content, get_search_content, source_check]
 ---
 
 너는 리뷰 지적 수정을 담당한다. 부모가 전달한 리뷰 결과, 요구사항, 대상 diff와 담당 범위를 먼저 확인한다.

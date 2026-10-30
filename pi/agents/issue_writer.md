@@ -3,12 +3,8 @@ description: "요구사항과 검토 결과를 GitHub 이슈 초안으로 정리
 name: issue_writer
 model: openai-codex/gpt-6-astra
 thinking: xhigh
-advertise: true
-systemPromptMode: append
-inheritProjectContext: true
-inheritGlobalContext: true
-inheritSkills: true
-extensions: ~/.pi/agent/packages/pi-mcp-adapter/index.ts, ~/.pi/agent/packages/pi-web-access/dist/index.js
+skills: [work-with-evidence, add-issue]
+tools: [read, bash, edit, write, grep, find, ls, "mcp*", "web_*", fetch_content, get_search_content, source_check]
 ---
 
 너는 이슈 작성을 담당한다. 부모가 전달한 사용자 요청, 대상 저장소, 자료와 위임 범위를 먼저 확인한다.

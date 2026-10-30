@@ -14,8 +14,8 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `mise/` — Node.js, Python, Ruby, Java, Terraform, CocoaPods의 전역 mise 버전 설정
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
-- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`, 확장은 `packages/node/pi-extensions/`의 npm lock으로 고정한다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
-- `pi/skills/` — Pi 전용 스킬. 에이전트는 `pi/agents/*.md` 형식으로 관리한다.
+- `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`로 관리한다. Radian은 MCP·웹 접근을 내장하고 `radian-subagent`로 위임하며, 독립 실행 Pi에는 기존 확장을 설치하지 않는다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
+- `pi/skills/` — Pi·Radian 공용 스킬(부모 전용 `subagent` 협업 스킬 포함). 에이전트 프로필은 `pi/agents/*.md` 형식으로 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
@@ -70,7 +70,7 @@ npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정�
 - CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
 - Mac App Store 앱은 `homebrew.masApps`에 추가한다. 형식은 `이름 = App Store ID`이다.
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
-- Pi MCP는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 CLI를 덮어쓰지 않는다. 확장은 `packages/node/pi-extensions/package.json`의 버전을 수정한 뒤 같은 폴더에서 `npm install --package-lock-only --legacy-peer-deps --ignore-scripts --no-audit --no-fund`로 잠금을 갱신하고 `nix build .#pi`로 검증한다. 확장의 peer SDK는 Nix Pi CLI와 공유한다.
+- Radian MCP 서버는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 Pi CLI를 덮어쓰지 않는다. Pi CLI는 Nix의 `pi-coding-agent`만 사용하며, 기존 서브에이전트·MCP·웹 접근 npm 확장은 별도로 설치하지 않는다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - Nix 파일은 `nixfmt`으로 포맷한다.
 - 머신 구성 이름은 `mbp`(`darwinConfigurations.mbp`)이다.

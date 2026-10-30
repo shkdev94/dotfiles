@@ -62,15 +62,6 @@
             pyproject-build-systems
             ;
         };
-      piAgent =
-        pkgs:
-        pkgs.symlinkJoin {
-          name = "pi-coding-agent-${pkgs.pi-coding-agent.version}";
-          paths = [
-            pkgs.pi-coding-agent
-            (pkgs.callPackage ./packages/node/pi-extensions { })
-          ];
-        };
       configuration =
         { pkgs, config, ... }:
         {
@@ -95,7 +86,7 @@
             corepack
             uv
             (browserUse pkgs)
-            (piAgent pkgs)
+            pi-coding-agent
             awscli2
             gh
             pigz
@@ -199,7 +190,6 @@
     in
     {
       packages.aarch64-darwin.browser-use = browserUse nixpkgs.legacyPackages.aarch64-darwin;
-      packages.aarch64-darwin.pi = piAgent nixpkgs.legacyPackages.aarch64-darwin;
 
       darwinConfigurations.mbp = nix-darwin.lib.darwinSystem {
         modules = [

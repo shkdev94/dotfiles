@@ -60,13 +60,6 @@ in
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
   home.file.".pi/agent/prompts".source = create_symlink "${dotfiles}/pi/prompts";
   home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
-  home.file.".pi/agent/extensions/subagent/config.json".source =
-    create_symlink "${dotfiles}/pi/subagents.json";
-  home.file.".pi/agent/packages" = {
-    source = "${pkgs.callPackage ./packages/node/pi-extensions { }}/share/pi-extensions/node_modules";
-    # Take ownership of the generated link, including links from manual installs.
-    force = true;
-  };
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";
