@@ -1,6 +1,6 @@
 # Pi 설정
 
-Pi 에이전트 4개와 스킬을 관리한다.
+Radian 위임 에이전트 프로필 3개와 Pi·Radian 공용 스킬을 관리한다.
 
 Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리한다. 독립 실행 Pi에는 기존 하위 에이전트·MCP·웹 접근 확장을 더 이상 설치하지 않는다. Radian은 내장 MCP·웹 접근 기능을 사용하고 `radian-subagent`로 위임한다. 설정 변경은 필요할 때 `nxr`로 적용하되, 현재 세션에는 `/reload` 또는 재시작이 필요하다. `pi` 명령은 독립 실행 Pi를 실행한다.
 
@@ -17,11 +17,11 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 ## 모델과 계정
 
 - 기본 모델: `settings.json`의 `defaultProvider`와 `defaultModel`을 사용하며, 현재 `openai-codex/gpt-6.1-sol`, 추론 수준 `xhigh`.
-- implementer·review_fixer: `openai-codex/gpt-6-sol`.
-- reviewer·issue_writer: `openai-codex/gpt-6-astra`.
+- implementer: `openai-codex/gpt-6.1-sol`, 추론 수준 `xhigh`.
+- investigator·reviewer: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`.
 - Pi의 기본 Codex 구독 로그인을 사용하므로 모델 인증용 확장은 별도로 필요하지 않다.
 
-고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가했다. Sol·Astra의 컨텍스트 예산은 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
+고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가한 기록이 남아 있다. 현재 프로필의 `gpt-6.1-sol`과 `gpt-6-astra`는 `modelOverrides`로 컨텍스트 예산을 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
 
 Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. 별도의 계정 전환 확장은 사용하지 않는다.
 
@@ -43,9 +43,13 @@ Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. �
 
 ## 에이전트·스킬·MCP
 
-Radian 부모 에이전트는 내장 `radian-subagent`로 implementer, reviewer, review_fixer, issue_writer 프로필에 위임한다. `list`로 프로필을 확인하고 `spawn`의 `{agent, task}`로 시작하며 기본은 비동기 실행이다. `status`·`wait`로 결과와 질문을 확인하고, 답변이 필요한 자식에게 `reply`로 응답한다. 중단에는 `stop`, 진행 중 방향 변경에는 `steer`를 사용한다. 제품에 독립적인 협업 원칙은 [부모 전용 subagent 스킬](skills/subagent/SKILL.md)을 따른다. 구체적인 호출법은 Radian의 내부 부모·자식 시스템 지침과 도구 스키마가 제공하며, Radian은 이 스킬의 설치 여부나 이름에 의존하지 않는다. reviewer 프로필은 읽기 도구만 허용하며 명령 실행·파일 수정·MCP 조회를 하지 않는다. 부모가 필요한 자료를 전달하고 최종 검증한다.
+Radian 부모 에이전트는 내장 `radian-subagent`로 implementer, investigator, reviewer 세 프로필에 위임한다. implementer는 구현·리뷰 지적 반영·문서/이슈 정리를 담당하고, investigator는 코드·외부 문서를 조사하며, reviewer는 독립적으로 코드 변경을 검토한다. `list`로 프로필을 확인하고 `spawn`의 `{agent, task}`로 시작하며 기본은 비동기 실행이다. `status`·`wait`로 결과와 질문을 확인하고, 답변이 필요한 자식에게 `reply`로 응답한다. 중단에는 `stop`, 진행 중 방향 변경에는 `steer`를 사용한다. 제품에 독립적인 협업 원칙은 [부모 전용 subagent 스킬](skills/subagent/SKILL.md)을 따른다. 구체적인 호출법은 Radian의 내부 부모·자식 시스템 지침과 도구 스키마가 제공하며, Radian은 이 스킬의 설치 여부나 이름에 의존하지 않는다. 자식은 재위임할 수 없다.
 
-스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. 공용 `~/.agents/skills/` 경로의 중복 자동 로딩은 Pi 설정에서 제외한다. Radian 자식은 역할 스킬을 기본 상속하고 프로필에서 지정한 스킬을 주입받는다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
+`skills` frontmatter는 필수 스킬의 본문을 Radian 자식에게 자동 주입하는 목록이지 다른 스킬의 허용 목록이 아니다. 작업에 필요한 조건부 스킬·참조 문서는 별도로 읽는다. 스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. 공용 `~/.agents/skills/` 경로의 중복 자동 로딩은 Pi 설정에서 제외한다. Radian 자식도 부모 전용 항목을 제외한 스킬 목록에서 필요한 스킬을 선택하며, 프로필에서 지정한 필수 스킬 본문은 자동 주입받는다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
+
+`tools` 필드를 생략한 implementer는 프로필별 도구 허용 목록을 추가하지 않고 SDK 기본 선택을 사용한다. 현재 `settings.json`에 `defaultTools`가 없으므로 기본 내장 활성 도구는 `read`, `bash`, `edit`, `write`이며, Radian의 MCP·웹 도구는 별도로 제공되고 웹 도구는 필요할 때 활성화한다. investigator는 `read`, `grep`, `find`, `ls`와 웹 조회 도구(`web_enable`, `web_search`, `fetch_content`, `get_search_content`, `source_check`)만 허용한다. reviewer는 `read`, `grep`, `find`, `ls`만 허용하며 외부 자료와 명령 결과는 부모가 제공한다. 자식의 도구 허용 목록은 직접·중첩 도구 호출 모두에 적용되지만 운영체제 샌드박스는 아니다. 부모가 필요한 자료를 전달하고 최종 검증한다.
+
+`home.nix`가 `pi/agents/` 디렉터리 전체를 심볼릭 링크로 연결하므로 프로필 추가·삭제·수정에는 Nix 변경이나 `nxr`이 필요 없다. 새 `list`·`spawn`은 변경된 정의를 읽는다. 부모 프롬프트의 역할 목록은 다시 로드해 갱신하며, 이미 실행 중인 자식에는 변경이 소급 적용되지 않으므로 새로 실행한다.
 
 Radian은 내장 MCP 기능으로 Context7, Figma, Spline, Vercel, browser-use, Obsidian 등을 연결한다. 서버 목록은 기존 `mcp-adapter.json`에 보관한다. 독립 실행 Pi에는 기존 MCP 어댑터가 없으므로 이 설정만으로 MCP 도구나 `/mcp-adapter` 명령이 제공되지 않는다. Radian의 `mcp` 도구에서 필요한 서버 도구를 검색·호출한다.
 
@@ -89,7 +93,7 @@ Obsidian API 키는 `auth: "bearer"`, `bearerTokenStore: true`로 설정하고 m
 
 ## 웹 검색
 
-Radian은 내장 웹 접근 기능으로 `web_search`, `fetch_content`, `get_search_content`, `source_check`를 제공한다. Radian 부모와 허용된 자식 프로필은 필요할 때 `web_enable`로 도구를 활성화하고 다음 요청에서 사용한다. 읽기 전용 reviewer 프로필에는 웹 도구를 허용하지 않는다. 독립 실행 Pi에는 기존 웹 접근 확장을 설치하지 않는다.
+Radian은 내장 웹 접근 기능으로 `web_search`, `fetch_content`, `get_search_content`, `source_check`를 제공한다. Radian 부모와 implementer·investigator는 필요할 때 `web_enable`로 도구를 활성화하고 다음 모델 요청에서 사용한다. reviewer 프로필에는 웹 도구를 허용하지 않는다. 독립 실행 Pi에는 기존 웹 접근 확장을 설치하지 않는다.
 
 `web-search.json`의 `searchRouting`은 `providers: ["openai"]`, `useCurrentModel: true`, `fallbackOn: ["unsupported"]`로 설정했다. 각 에이전트가 사용하는 OpenAI/Codex 모델과 현재 인증으로 별도의 검색 요청을 실행한다. OpenAI 외 검색 제공자로 자동 전환하지 않는다. 현재 모델이 이 검색 경로를 지원하지 않으면 실패를 보고한다.
 
