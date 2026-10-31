@@ -10,5 +10,8 @@
     "!**/.agents/skills/**"
   ],
   "lastChangelogVersion": "0.86.1",
-  "theme": "atom-one-dark"
+  "theme": "atom-one-dark",
+  "packages": [
+    "https://github.com/earendil-works/pi-claude-code"
+  ]
 }

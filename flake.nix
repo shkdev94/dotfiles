@@ -167,6 +167,7 @@
             ];
 
             casks = [
+              "claude-code"
               "ghostty"
               "google-chrome"
               "visual-studio-code"
