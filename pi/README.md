@@ -1,6 +1,6 @@
 # Pi 설정
 
-Radian 위임 에이전트 프로필 3개와 Pi·Radian 공용 스킬을 관리한다.
+Radian 위임 에이전트 프로필 4개와 Pi·Radian 공용 스킬을 관리한다.
 
 Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리한다. 독립 실행 Pi에는 기존 하위 에이전트·MCP·웹 접근 확장을 더 이상 설치하지 않는다. Radian은 내장 MCP·웹 접근 기능을 사용하고 `radian-subagent`로 위임한다. 설정 변경은 필요할 때 `nxr`로 적용하되, 현재 세션에는 `/reload` 또는 재시작이 필요하다. `pi` 명령은 독립 실행 Pi를 실행한다.
 
@@ -17,9 +17,10 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 ## 모델과 계정
 
 - 기본 모델: `settings.json`의 `defaultProvider`와 `defaultModel`을 사용하며, 현재 `openai-codex/gpt-6.1-sol`, 추론 수준 `xhigh`.
-- implementer: `openai-codex/gpt-6.1-sol`, 추론 수준 `xhigh`.
-- investigator·reviewer: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`.
-- Pi의 기본 Codex 구독 로그인을 사용하므로 모델 인증용 확장은 별도로 필요하지 않다.
+- implementer: `claude-code/claude-opus-5-5`, 추론 수준 `xhigh`.
+- planner·investigator·reviewer: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`.
+- Codex는 Pi의 기본 구독 로그인을 사용한다. implementer는 `pi-claude-code` 확장과 Claude Code CLI의 별도 구독 로그인을 사용하며, Radian `/accounts`의 Anthropic 로그인과는 독립적이다.
+- `settings.json`의 `commandAgents.plan`은 `planner` 프로필을 참조한다. 이 기능을 지원하는 Radian에서 `/plan`은 해당 프로필의 모델·지침으로 계획만 작성하고 부모 대화가 검증·저장한다. 모델 업데이트는 `agents/planner.md`에서만 변경한다.
 
 고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가한 기록이 남아 있다. 현재 프로필의 `gpt-6.1-sol`과 `gpt-6-astra`는 `modelOverrides`로 컨텍스트 예산을 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
 
@@ -43,7 +44,7 @@ Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. �
 
 ## 에이전트·스킬·MCP
 
-Radian 부모 에이전트는 내장 `radian-subagent`로 implementer, investigator, reviewer 세 프로필에 위임한다. implementer는 구현·리뷰 지적 반영·문서/이슈 정리를 담당하고, investigator는 코드·외부 문서를 조사하며, reviewer는 독립적으로 코드 변경을 검토한다. `list`로 프로필을 확인하고 `spawn`의 `{agent, task}`로 시작하며 기본은 비동기 실행이다. `status`·`wait`로 결과와 질문을 확인하고, 답변이 필요한 자식에게 `reply`로 응답한다. 중단에는 `stop`, 진행 중 방향 변경에는 `steer`를 사용한다. 제품에 독립적인 협업 원칙은 [부모 전용 subagent 스킬](skills/subagent/SKILL.md)을 따른다. 구체적인 호출법은 Radian의 내부 부모·자식 시스템 지침과 도구 스키마가 제공하며, Radian은 이 스킬의 설치 여부나 이름에 의존하지 않는다. 자식은 재위임할 수 없다.
+Radian 부모 에이전트는 내장 `radian-subagent`로 implementer, investigator, reviewer 프로필에 위임한다. planner는 `commandAgents.plan`으로 연결된 계획 전용 역할이며, 호스트의 읽기 전용 제한 아래 초안만 반환하고 부모가 계획을 저장한다. implementer는 구현·리뷰 지적 반영·문서/이슈 정리를 담당하고, investigator는 코드·외부 문서를 조사하며, reviewer는 독립적으로 코드 변경을 검토한다. `list`로 프로필을 확인하고 `spawn`의 `{agent, task}`로 시작하며 기본은 비동기 실행이다. `status`·`wait`로 결과와 질문을 확인하고, 답변이 필요한 자식에게 `reply`로 응답한다. 중단에는 `stop`, 진행 중 방향 변경에는 `steer`를 사용한다. 제품에 독립적인 협업 원칙은 [부모 전용 subagent 스킬](skills/subagent/SKILL.md)을 따른다. 구체적인 호출법은 Radian의 내부 부모·자식 시스템 지침과 도구 스키마가 제공하며, Radian은 이 스킬의 설치 여부나 이름에 의존하지 않는다. 자식은 재위임할 수 없다.
 
 `skills` frontmatter는 필수 스킬의 본문을 Radian 자식에게 자동 주입하는 목록이지 다른 스킬의 허용 목록이 아니다. 작업에 필요한 조건부 스킬·참조 문서는 별도로 읽는다. 스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. 공용 `~/.agents/skills/` 경로의 중복 자동 로딩은 Pi 설정에서 제외한다. Radian 자식도 부모 전용 항목을 제외한 스킬 목록에서 필요한 스킬을 선택하며, 프로필에서 지정한 필수 스킬 본문은 자동 주입받는다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
 

@@ -2,6 +2,9 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6.1-sol",
   "defaultThinkingLevel": "xhigh",
+  "commandAgents": {
+    "plan": "planner"
+  },
   "shellPath": "/bin/zsh",
   "enableInstallTelemetry": false,
   "editorPaddingX": 1,
