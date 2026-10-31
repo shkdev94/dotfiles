@@ -1,7 +1,7 @@
 ---
 description: "구현·리뷰 지적 반영·문서와 이슈 정리를 위임받은 범위에서 수행하고 검증한다."
 name: implementer
-model: openai-codex/gpt-6.1-sol
+model: anthropic/claude-opus-5-5
 thinking: xhigh
 skills: [write-good-code, work-with-evidence]
 ---
