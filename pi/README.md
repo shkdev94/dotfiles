@@ -1,6 +1,6 @@
 # Pi 설정
 
-Radian 위임 에이전트 프로필 4개와 Pi·Radian 공용 스킬을 관리한다.
+Radian 도메인 에이전트 프로필 7개와 Pi·Radian 공용 스킬을 관리한다.
 
 Pi CLI는 `flake.lock`의 nixpkgs가 제공하는 `pi-coding-agent`로 관리한다. 독립 실행 Pi에는 기존 하위 에이전트·MCP·웹 접근 확장을 더 이상 설치하지 않는다. Radian은 내장 MCP·웹 접근 기능을 사용하고 `radian-subagent`로 위임한다. 설정 변경은 필요할 때 `nxr`로 적용하되, 현재 세션에는 `/reload` 또는 재시작이 필요하다. `pi` 명령은 독립 실행 Pi를 실행한다.
 
@@ -16,11 +16,15 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 
 ## 모델과 계정
 
-- 기본 모델: `settings.json`의 `defaultProvider`와 `defaultModel`을 사용하며, 현재 `openai-codex/gpt-6.1-sol`, 추론 수준 `xhigh`.
-- implementer: `claude-code/claude-opus-5-5`, 추론 수준 `xhigh`.
-- planner·investigator·reviewer: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`.
-- Codex는 Pi의 기본 구독 로그인을 사용한다. implementer는 `pi-claude-code` 확장과 Claude Code CLI의 별도 구독 로그인을 사용하며, Radian `/accounts`의 Anthropic 로그인과는 독립적이다.
-- `settings.json`의 `commandAgents.plan`은 `planner` 프로필을 참조한다. 이 기능을 지원하는 Radian에서 `/plan`은 해당 프로필의 모델·지침으로 계획만 작성하고 부모 대화가 검증·저장한다. 모델 업데이트는 `agents/planner.md`에서만 변경한다.
+- 부모 기본값: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`. `settings.json`의 기본값은 새 세션에 적용하며, 이미 실행 중인 대화는 유휴 상태에서 `/model`로 별도 전환한다.
+- Product Lead: `openai-codex/gpt-6-astra`, `xhigh`.
+- Tech Lead·UI/UX Lead: `claude-code/claude-opus-5-5`, `xhigh`.
+- PM·Engineer: `openai-codex/gpt-6.1-sol`, `high`.
+- Designer: `claude-code/claude-sonnet-5-5`, `high`.
+- QA: `openai-codex/gpt-6-astra`, `high`.
+- Codex는 Pi의 기본 구독 로그인을 사용한다. Claude 모델은 `pi-claude-code` 확장과 Claude Code CLI의 별도 구독 로그인을 사용하며, Radian `/accounts`의 Anthropic 로그인과는 독립적이다.
+- `commandAgents.plan` 연결은 제거해 `/plan`을 부모가 직접 작성·검토·저장하게 한다. 계획은 작업을 실행하지 않으며, 호스트가 지정한 계획 전용 자식은 어떤 프로필을 쓰더라도 읽기 전용·재위임 불가로 유지한다.
+- 모델과 추론 수준은 실제 동적 카탈로그에서 확인한다. 기본 배정은 프로젝트 벤치마크로 입증된 우열이 아니며, 임의 대체하지 않는다.
 
 고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가한 기록이 남아 있다. 현재 프로필의 `gpt-6.1-sol`과 `gpt-6-astra`는 `modelOverrides`로 컨텍스트 예산을 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
 
@@ -44,11 +48,21 @@ Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. �
 
 ## 에이전트·스킬·MCP
 
-Radian 부모 에이전트는 내장 `radian-subagent`로 implementer, investigator, reviewer 프로필에 위임한다. planner는 `commandAgents.plan`으로 연결된 계획 전용 역할이며, 호스트의 읽기 전용 제한 아래 초안만 반환하고 부모가 계획을 저장한다. implementer는 구현·리뷰 지적 반영·문서/이슈 정리를 담당하고, investigator는 코드·외부 문서를 조사하며, reviewer는 독립적으로 코드 변경을 검토한다. `list`로 프로필을 확인하고 `spawn`의 `{agent, task}`로 시작하며 기본은 비동기 실행이다. `status`·`wait`로 결과와 질문을 확인하고, 답변이 필요한 자식에게 `reply`로 응답한다. 중단에는 `stop`, 진행 중 방향 변경에는 `steer`를 사용한다. 제품에 독립적인 협업 원칙은 [부모 전용 subagent 스킬](skills/subagent/SKILL.md)을 따른다. 구체적인 호출법은 Radian의 내부 부모·자식 시스템 지침과 도구 스키마가 제공하며, Radian은 이 스킬의 설치 여부나 이름에 의존하지 않는다. 자식은 재위임할 수 없다.
+부모는 전체 요청·직군 간 충돌·최종 통합을 담당하고, Product Lead → PM, Tech Lead → Engineer, UI/UX Lead → Designer로 도메인 판단과 제작을 나눈다. QA는 부모에게 독립적으로 보고하며 작업 전 시나리오, 작업 후 실제 사용자 흐름, 수정 후 회귀를 검증한다. 각 역할은 자기 영역을 조사·검증하고 산출물·실행 근거·미확인 사항을 반환한다. 모든 작업에 모든 역할을 호출하지 않는다.
+
+프로필의 `delegation: { enabled: true }`가 있는 조율자만 재위임할 수 있다. 현재 세 Lead만 활성화하지만 역할 이름에 따른 특권은 없다. 생략·false는 실무자와 QA처럼 leaf로 남으며 `allowedAgents`는 사용하지 않는다. 자신의 실행 도구 권한과 자식 프로필의 권한은 별개이므로 읽기 전용 Lead가 쓰기 가능한 Engineer를 호출할 수 있다.
+
+`list`로 프로필을 확인하고 비동기 `spawn`으로 시작하며, 직속 자식의 `status`·`wait`·`reply`·`steer`·`stop`을 관리한다. 루트 깊이는 0, 최대 자손 깊이는 3, 전체 트리의 동시 실행은 5개, 보관은 128개다. 초기화·질문 대기·감독·정리 중인 실행도 한도에 포함하고, 초과 시 숨은 대기열 없이 명시적으로 거부한다. 조율자는 자손 정리를 끝내기 전에 최종 답을 내지 않는다. 분기 중단은 그 자손만, 루트 종료·교체·중단은 전체 자손을 정리한다. 재시작은 기록만 복원하고 실행을 재개하지 않는다.
+
+협업 원칙은 [subagent 스킬](skills/subagent/SKILL.md)을 따른다. 이 스킬 자체가 권한을 부여하지는 않는다. 실제 호출법·소유권·한도·계획 제한은 Radian 호스트 지침과 도구 스키마가 제공한다. 기존 implementer·investigator·planner·reviewer는 새 구성 검증과 진행 작업·설정 참조 이관 후 제거했다. 기존 실행 기록은 유지한다.
 
 `skills` frontmatter는 필수 스킬의 본문을 Radian 자식에게 자동 주입하는 목록이지 다른 스킬의 허용 목록이 아니다. 작업에 필요한 조건부 스킬·참조 문서는 별도로 읽는다. 스킬은 `~/.pi/agent/skills/`에서 로드하고, `/skill:write-good-code`처럼 명시 호출할 수 있다. 공용 `~/.agents/skills/` 경로의 중복 자동 로딩은 Pi 설정에서 제외한다. Radian 자식도 부모 전용 항목을 제외한 스킬 목록에서 필요한 스킬을 선택하며, 프로필에서 지정한 필수 스킬 본문은 자동 주입받는다. 에이전트와 스킬은 이 저장소의 `pi/` 원본을 수정한다.
 
-`tools` 필드를 생략한 implementer는 프로필별 도구 허용 목록을 추가하지 않고 SDK 기본 선택을 사용한다. 현재 `settings.json`에 `defaultTools`가 없으므로 기본 내장 활성 도구는 `read`, `bash`, `edit`, `write`이며, Radian의 MCP·웹 도구는 별도로 제공되고 웹 도구는 필요할 때 활성화한다. investigator는 `read`, `grep`, `find`, `ls`와 웹 조회 도구(`web_enable`, `web_search`, `fetch_content`, `get_search_content`, `source_check`)만 허용한다. reviewer는 `read`, `grep`, `find`, `ls`만 허용하며 외부 자료와 명령 결과는 부모가 제공한다. 자식의 도구 허용 목록은 직접·중첩 도구 호출 모두에 적용되지만 운영체제 샌드박스는 아니다. 부모가 필요한 자료를 전달하고 최종 검증한다.
+Engineer는 `tools`를 생략해 SDK 기본 도구를 사용한다. Product/Tech Lead는 조회·웹 조사와 호스트 위임 도구를, UI/UX Lead와 Designer는 명시한 Figma·Spline 서버 프록시를 사용한다. 범용 `mcp` 설정 게이트웨이는 디자인 프로필에 주지 않는다. 서버 프록시는 해당 서버 안의 읽기 전용을 강제하지 않으므로 Lead의 리뷰 전용 동작은 업무 계약이다. 부족한 도구 스키마나 다른 서버 자료는 부모에게 요청한다.
+
+QA는 조회·승인된 검증 명령과 기존 `mcp__browser_use` 서버 프록시를 사용한다. MCP 서버 설정이나 `directTools` 노출을 변경할 필요는 없다. 서버 프록시는 기술적으로 browser-use의 모든 도구를 호출할 수 있으므로, `browser_extract_content`(별도 모델 호출), `retry_with_browser_use_agent`, `browser_close_all` 금지는 강제 필터가 아닌 운영 지침이다. 범용 `mcp` 게이트웨이나 다른 서버 프록시는 QA에 주지 않는다. 도구 스키마가 필요하면 부모에게 요청하며, 서버 접근·인증이 없으면 검증을 차단 상태로 보고한다. browser-use가 있다고 desktop/computer-use도 있다고 가정하지 않는다.
+
+모든 역할은 공유 브라우저·데스크톱 조작 권한을 부모와 조율해 한 번에 하나만 사용하고 명시적으로 인계·반납한다. 이는 런타임 잠금이나 강제 격리가 아니다. SDK 직접·중첩 도구 호출의 허용 목록은 운영체제 샌드박스가 아니며, 내부 MCP 프록시가 SDK 도구 호출을 통하지 않고 실행하는 개별 도구까지 필터링하지 않는다. 외부 CLI나 숨은 에이전트 helper로 제한을 우회하지 않는다.
 
 `home.nix`가 `pi/agents/` 디렉터리 전체를 심볼릭 링크로 연결하므로 프로필 추가·삭제·수정에는 Nix 변경이나 `nxr`이 필요 없다. 새 `list`·`spawn`은 변경된 정의를 읽는다. 부모 프롬프트의 역할 목록은 다시 로드해 갱신하며, 이미 실행 중인 자식에는 변경이 소급 적용되지 않으므로 새로 실행한다.
 
@@ -94,7 +108,7 @@ Obsidian API 키는 `auth: "bearer"`, `bearerTokenStore: true`로 설정하고 m
 
 ## 웹 검색
 
-Radian은 내장 웹 접근 기능으로 `web_search`, `fetch_content`, `get_search_content`, `source_check`를 제공한다. Radian 부모와 implementer·investigator는 필요할 때 `web_enable`로 도구를 활성화하고 다음 모델 요청에서 사용한다. reviewer 프로필에는 웹 도구를 허용하지 않는다. 독립 실행 Pi에는 기존 웹 접근 확장을 설치하지 않는다.
+Radian은 내장 웹 접근 기능으로 `web_search`, `fetch_content`, `get_search_content`, `source_check`를 제공한다. 부모와 각 도메인 역할은 프로필에서 허용한 경우 `web_enable`로 도구를 활성화하고 다음 모델 요청에서 사용한다. QA는 제공된 근거와 직접 검증 도구를 우선 사용한다. 독립 실행 Pi에는 기존 웹 접근 확장을 설치하지 않는다. 현재 OpenAI 모델을 사용하는 검색 경로가 Claude 프로필에서 지원되지 않으면 실패를 보고하고 부모에게 자료를 요청한다.
 
 `web-search.json`의 `searchRouting`은 `providers: ["openai"]`, `useCurrentModel: true`, `fallbackOn: ["unsupported"]`로 설정했다. 각 에이전트가 사용하는 OpenAI/Codex 모델과 현재 인증으로 별도의 검색 요청을 실행한다. OpenAI 외 검색 제공자로 자동 전환하지 않는다. 현재 모델이 이 검색 경로를 지원하지 않으면 실패를 보고한다.
 

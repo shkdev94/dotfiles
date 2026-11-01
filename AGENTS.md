@@ -15,7 +15,7 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `packages/python/<name>/` — uv2nix로 관리하는 Python CLI 패키지의 Nix 정의, `pyproject.toml`, `uv.lock`
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
 - `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`로 관리한다. Radian은 MCP·웹 접근을 내장하고 `radian-subagent`로 위임하며, 독립 실행 Pi에는 기존 확장을 설치하지 않는다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
-- `pi/skills/` — Pi·Radian 공용 스킬(부모 전용 `subagent` 협업 스킬 포함). 에이전트 프로필은 `pi/agents/*.md` 형식으로 관리한다.
+- `pi/skills/` — Pi·Radian 공용 스킬(위임 권한이 있는 조율자를 위한 `subagent` 협업 스킬 포함). 에이전트 프로필은 `pi/agents/*.md` 형식으로 관리한다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
