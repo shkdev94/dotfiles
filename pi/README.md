@@ -23,7 +23,7 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 - Designer: `claude-code/claude-sonnet-5-5`, `high`.
 - QA: `openai-codex/gpt-6-astra`, `high`.
 - Codex는 Pi의 기본 구독 로그인을 사용한다. Claude 모델은 `pi-claude-code` 확장과 Claude Code CLI의 별도 구독 로그인을 사용하며, Radian `/accounts`의 Anthropic 로그인과는 독립적이다.
-- `commandAgents.plan` 연결은 제거해 `/plan`을 부모가 직접 작성·검토·저장하게 한다. 계획은 작업을 실행하지 않으며, 호스트가 지정한 계획 전용 자식은 어떤 프로필을 쓰더라도 읽기 전용·재위임 불가로 유지한다.
+- `commandAgents.plan`은 미설정이다. 지원 호스트의 기본 `/plan`은 부모가 필요한 분기를 선언하고 각 Lead가 상세 계획을 소유·게시하는 계층형 경로다. `/plan --single`만 기존 단일 계획 경로이며, 현재처럼 `commandAgents.plan`이 없으면 부모가 `radian-plan submit`으로 제출한다. 계획은 편집·작업 실행을 하지 않는다. 재위임은 호스트가 전이적 읽기 전용 계획 기능을 제공·허용할 때만 가능하며, 그 외에는 현재 호스트의 재위임 금지 등 제한을 따른다.
 - 모델과 추론 수준은 실제 동적 카탈로그에서 확인한다. 기본 배정은 프로젝트 벤치마크로 입증된 우열이 아니며, 임의 대체하지 않는다.
 
 고정된 Pi 0.86.1의 기본 모델 목록에는 `gpt-6-sol`이 없어 `models.json`에서 Codex의 기본 전송·OAuth를 이용하는 모델로 추가한 기록이 남아 있다. 현재 프로필의 `gpt-6.1-sol`과 `gpt-6-astra`는 `modelOverrides`로 컨텍스트 예산을 872,000으로 맞췄다. 모델 자체의 지원 범위는 [OpenAI Sol 문서](https://developers.openai.com/api/docs/models/gpt-6-sol)와 [Astra 문서](https://developers.openai.com/api/docs/models/gpt-6-astra)를 확인했다. 실제 구독 계정의 모델 접근 권한은 로그인 후 확인한다.
@@ -48,9 +48,15 @@ Pi 안에서 `/login`을 실행하고 OpenAI Codex 계정에 로그인한다. �
 
 ## 에이전트·스킬·MCP
 
-부모는 전체 요청·직군 간 충돌·최종 통합을 담당하고, Product Lead → PM, Tech Lead → Engineer, UI/UX Lead → Designer로 도메인 판단과 제작을 나눈다. QA는 부모에게 독립적으로 보고하며 작업 전 시나리오, 작업 후 실제 사용자 흐름, 수정 후 회귀를 검증한다. 각 역할은 자기 영역을 조사·검증하고 산출물·실행 근거·미확인 사항을 반환한다. 모든 작업에 모든 역할을 호출하지 않는다.
+부모는 전체 요청·직군 간 충돌·최종 통합을 담당하고, Product Lead → PM, Tech Lead → Engineer, UI/UX Lead → Designer로 도메인 판단과 제작을 나눈다. QA는 호스트 경로가 있으면 task에 배정된 Lead·구현자에게 `radian-task finding`·`radian-task verdict`로 보고하고 루트도 볼 수 있으며 담당 Lead가 확인한다. 경로가 없으면 소유자에게 반환한다. 독립성은 구현자·Lead·루트가 QA 판정을 대신할 수 없다는 뜻이지 루트 전용 보고가 아니며, 전달만으로 QA에 조율 권한이 생기지 않는다. QA는 제품 코드를 편집하지 않고 최초 구현과 모든 자동·수동/사람 수정의 현재 리비전을 새로 검증한다. 각 역할은 산출물·실행 근거·미확인 사항을 반환하며 모든 작업에 모든 역할을 호출하지 않는다.
 
-프로필의 `delegation: { enabled: true }`가 있는 조율자만 재위임할 수 있다. 현재 세 Lead만 활성화하지만 역할 이름에 따른 특권은 없다. 생략·false는 실무자와 QA처럼 leaf로 남으며 `allowedAgents`는 사용하지 않는다. 자신의 실행 도구 권한과 자식 프로필의 권한은 별개이므로 읽기 전용 Lead가 쓰기 가능한 Engineer를 호출할 수 있다.
+런타임 도구 스키마와 호스트 지침이 이 안내보다 우선한다. 호스트가 `radian-task`와 task binding을 제공할 때만 역할별 동작을 사용하고, 없으면 `radian-supervisor progress/ask`(제공 시) 또는 최종 결과로 소유자에게 전달한다. 구형 실행 세션에는 명시적 재시작 전까지 새 도구가 없고 독립 실행 Pi에도 없으므로 없는 도구 호출이나 소유자 전용 채널 우회는 하지 않는다. 이 문서 변경은 재시작이나 설정 변경을 수행하지 않는다.
+
+계층형 `/plan`에서 부모는 `radian-task declare`로 관련 분기만 선언한다. 각 Lead는 상세 계획과 소속 실무자를 책임지고 `radian-task publish-plan`으로 게시하며 호스트가 저장한다. 부모는 제한된 요약과 `ref@revision`만 받고 본문을 수락·저장·재작성하지 않는다. `radian-plan report`는 준비 상태를 보고할 뿐 승인·실행이 아니며, `radian-plan cancel`은 선언과 기존 산출물을 보존한다. 계획 자손도 읽기 전용이다.
+
+구현자로 바인딩된 실무자는 `radian-task submit`으로 QA에 제출하며 검증 완료를 자칭하지 않는다. 수정은 호스트가 시도를 허용하고 소유자가 배정한 경우에만 한다. 최초 발견·최초 QA는 0회이고 오래된·중복·차단·중단 결과도 세지 않는다. 수정 후 자동 QA 재검증 3회 실패는 영구 잠금이며 4번째 자동 시도나 재배정·분할·이어가기·복구를 통한 초기화는 없다. 모든 담당 Lead는 재현, 3회 시도와 QA 근거, 확인된 원인과 가설, 수정 후보, 필요한 결정을 읽기 전용 `radian-task analysis`로 게시해 부모를 거쳐 사람에게 전달한다. 직접 사용자 `/repair status`, `/repair recheck`, `/repair cancel`, `/repair continue`만 수동 처리의 권한 경로이며 모델 문구·도구·알림은 권한이 아니다. 사람 수정도 새 QA가 필요하고 잠금은 유지된다.
+
+프로필의 `delegation: { enabled: true }`가 있는 조율자만 재위임할 수 있다. 현재 세 Lead만 활성화하지만 역할 이름에 따른 특권은 없다. 생략·false는 실무자와 QA처럼 leaf로 남으며 `allowedAgents`는 사용하지 않는다. 일반 실행에서는 자신의 도구 권한과 자식 프로필의 권한이 별개이므로 읽기 전용 Lead가 쓰기 가능한 Engineer를 호출할 수 있지만, 계획·분석 목적의 자손은 프로필과 관계없이 같은 읽기 전용 제한을 상속한다.
 
 `list`로 프로필을 확인하고 비동기 `spawn`으로 시작하며, 직속 자식의 `status`·`wait`·`reply`·`steer`·`stop`을 관리한다. 루트 깊이는 0, 최대 자손 깊이는 3, 전체 트리의 동시 실행은 5개, 보관은 128개다. 초기화·질문 대기·감독·정리 중인 실행도 한도에 포함하고, 초과 시 숨은 대기열 없이 명시적으로 거부한다. 조율자는 자손 정리를 끝내기 전에 최종 답을 내지 않는다. 분기 중단은 그 자손만, 루트 종료·교체·중단은 전체 자손을 정리한다. 재시작은 기록만 복원하고 실행을 재개하지 않는다.
 
