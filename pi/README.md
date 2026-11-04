@@ -16,7 +16,7 @@ Pi TUI는 [hasit/pi-community-themes의 Atom One Dark](https://github.com/hasit/
 
 ## 모델과 계정
 
-- 부모 기본값: `openai-codex/gpt-6-astra`, 추론 수준 `xhigh`. `settings.json`의 기본값은 새 세션에 적용하며, 이미 실행 중인 대화는 유휴 상태에서 `/model`로 별도 전환한다.
+- Default model: `openai-codex/gpt-6.1-sol`, thinking level `xhigh`. This shared `settings.json` default applies to new sessions without an explicit model; it is not a parent-only model override. Agent profiles keep their explicit model selections, and existing conversations retain their selected model unless changed with `/model` while idle.
 - Product Lead: `openai-codex/gpt-6-astra`, `xhigh`.
 - Tech Lead·UI/UX Lead: `claude-code/claude-opus-5-5`, `xhigh`.
 - PM·Engineer: `openai-codex/gpt-6.1-sol`, `high`.
