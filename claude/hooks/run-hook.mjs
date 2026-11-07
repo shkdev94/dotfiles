@@ -1,11 +1,13 @@
 // Shared stdin/stdout handling for PreToolUse hooks.
 // `evaluate` returns null to defer to the normal permission flow,
 // or { decision: "deny" | "ask", reason } to override it.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export function runHook(evaluate, moduleUrl) {
-  if (moduleUrl !== pathToFileURL(process.argv[1]).href) {
+  // Node resolves `import.meta.url` to the real path but leaves `argv[1]` as
+  // invoked, so resolve symlinks before comparing (~/.claude/hooks is a symlink).
+  if (moduleUrl !== pathToFileURL(realpathSync(process.argv[1])).href) {
     return;
   }
 

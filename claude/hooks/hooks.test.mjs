@@ -1,7 +1,11 @@
 // Run with: node --test claude/hooks/hooks.test.mjs
 import assert from "node:assert/strict";
-import { homedir } from "node:os";
-import { describe, it } from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { evaluate as delegate } from "./delegate-to-subagent.mjs";
 import { evaluate as guard } from "./guard-dangerous.mjs";
 
@@ -71,4 +75,37 @@ describe("guard-dangerous: file edits", () => {
       assert.equal(decisionOf(guard({ tool_name: tool, tool_input: { file_path: filePath } })), expected);
     });
   }
+});
+
+describe("hook invoked through a symlinked directory", () => {
+  const hooksDir = fileURLToPath(new URL(".", import.meta.url));
+  let tempDir;
+  let linkDir;
+
+  before(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "hooks-symlink-"));
+    linkDir = join(tempDir, "link");
+    symlinkSync(hooksDir, linkDir, "dir");
+  });
+
+  after(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function runThroughLink(script, input) {
+    const { stdout } = spawnSync(process.execPath, [join(linkDir, script)], {
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    return stdout === "" ? null : JSON.parse(stdout).hookSpecificOutput.permissionDecision;
+  }
+
+  it("guard-dangerous still asks before git push", () => {
+    const input = { tool_name: "Bash", tool_input: { command: "git push origin main" } };
+    assert.equal(runThroughLink("guard-dangerous.mjs", input), "ask");
+  });
+
+  it("delegate-to-subagent still denies work tools in the main conversation", () => {
+    assert.equal(runThroughLink("delegate-to-subagent.mjs", { tool_name: "Read", tool_input: {} }), "deny");
+  });
 });
