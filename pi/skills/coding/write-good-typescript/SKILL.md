@@ -163,21 +163,7 @@ function getRoleLabel(role: UserRole): string {
 
 서로 다른 조건식이나 범위 검사처럼 하나의 판별값으로 설명할 수 없는 분기는 guard clause나 `if`를 사용한다. 같은 판별값을 기준으로 한 `switch`가 여러 곳에서 반복된다면 분기를 무조건 제거하기보다 동작의 변경 이유와 확장 가능성을 확인하고, 필요할 때 전략 객체나 다형성으로 책임을 분리한다. Factory처럼 구현 선택을 한곳에 모으는 코드에서는 `switch`가 자연스러운 선택일 수 있다.
 
-## `satisfies`와 `as` 선택하기
-
-직접 선언하는 값이 특정 타입의 조건을 만족하는지 검사하면서 값의 구체적인 추론 타입을 유지하려면 `satisfies`를 사용한다. 객체 리터럴에 `as Config`처럼 단언하면 누락된 프로퍼티도 검사하지 않으므로 사용하지 않는다.
-
-```ts
-interface Config {
-  mode: "development" | "production";
-  port: number;
-}
-
-const config = {
-  mode: "production",
-  port: 3000,
-} satisfies Config;
-```
+## 타입 단언 대신 검증하기
 
 `as`는 타입을 검사하지 않으므로 타입 오류를 없애거나 값의 타입을 좁히기 위해 사용하지 않는다. 타입 가드나 검증 로직으로 런타임에 확인해 좁힌다.
 
@@ -191,7 +177,27 @@ if (!(canvas instanceof HTMLCanvasElement)) {
 const context = canvas.getContext("2d");
 ```
 
-`as const`처럼 값의 타입을 좁히지 않는 단언은 사용할 수 있다. 외부 라이브러리의 잘못된 타입처럼 단언이 불가피하다면 가능한 한 좁은 범위에 두고 이유를 주석으로 남긴다.
+`as const`처럼 값의 타입을 좁히지 않는 단언은 사용할 수 있다. branded type은 type predicate로, 인자에 따라 반환 타입이 달라지는 함수는 overload로 표현한다.
+
+```ts
+function isUserId(value: string): value is UserId {
+  return value.length > 0;
+}
+
+function parse(kind: "number", raw: string): number;
+function parse(kind: "string", raw: string): string;
+function parse(kind: "number" | "string", raw: string): number | string {
+  return kind === "number" ? Number(raw) : raw;
+}
+```
+
+외부 라이브러리의 잘못된 타입처럼 단언이 불가피하면 해당 줄에만 lint disable 주석으로 규칙을 끄고 이유를 함께 적는다.
+
+테스트에서 일부 메서드만 필요한 mock은 `as unknown as`로 작성해 타입 검사를 의도적으로 우회했음을 드러낸다.
+
+```ts
+const repository = { find: vi.fn() } as unknown as UserRepository;
+```
 
 ## Exhaustive Check
 
