@@ -104,6 +104,25 @@ function calculateDiscount(user: DiscountUser, amount: number): number {
 }
 ```
 
+조건식에는 `boolean`이나 객체만 사용한다. 숫자, 문자열, `boolean | undefined`를 그대로 조건에 쓰면 `0`, `""`, `false`가 `undefined`와 함께 거짓으로 처리된다. 의도한 값과 직접 비교하고, 값이 없을 때의 기본값은 `||` 대신 `??`로 지정한다.
+
+```ts
+function getBadgeText(count: number, label: string | undefined): string | undefined {
+  if (count > 0) {
+    return String(count);
+  }
+  if (label !== undefined && label !== "") {
+    return label;
+  }
+
+  return undefined;
+}
+
+function getPageSize(pageSize: number | undefined): number {
+  return pageSize ?? 20;
+}
+```
+
 하나의 판별값에 따라 여러 개의 상호 배타적인 경로 중 하나를 선택한다면 연속된 `if`/`else if`보다 `switch`를 사용한다. 리터럴 유니온이나 판별 가능한 유니온을 분기할 때 각 케이스의 의도와 처리 범위를 한곳에서 확인하기 좋고, exhaustive check와 함께 처리 누락도 검사할 수 있다.
 
 ```ts
