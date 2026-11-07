@@ -41,33 +41,56 @@ function getDisplayName(metadata: Record<string, unknown>): string | undefined {
 }
 ```
 
-프로퍼티 구조를 알고 있다면 `Record<string, unknown>`보다 필요한 프로퍼티를 명시한 타입을 정의한다. 키에 접근하지 않고 원시값만 제외하려는 경우에는 `object`를 사용한다.
+프로퍼티 구조를 알고 있다면 `Record<string, unknown>`보다 필요한 프로퍼티를 명시한 타입을 정의한다.
+
+`object`도 사용하지 않는다. `object`는 원시값만 제외할 뿐 어떤 프로퍼티가 있는지 표현하지 못한다. `WeakMap`의 키처럼 객체의 참조만 필요한 경우에도 실제로 다루는 타입을 사용한다.
+
+```ts
+const sessionCache = new WeakMap<User, Session>();
+```
 
 ## 타입 선언의 기본 선택
 
-저장소에 별도의 규칙이 없다면 객체 타입을 포함한 새로운 타입 선언에는 `type` alias를 기본으로 사용한다. `type`은 객체뿐 아니라 유니온, 튜플, 교차 타입 등을 표현할 수 있어 타입 선언의 일관성을 유지하기 좋다.
+저장소에 별도의 규칙이 없다면 객체 타입은 `interface`로 선언한다. 유니온, 튜플, 함수 타입, mapped·conditional 타입처럼 `interface`로 표현할 수 없는 타입에만 `type` alias를 사용한다.
 
 ```ts
-type User = {
+interface User {
   id: string;
   name: string;
-};
+}
 
 type Result<T> =
   | { success: true; value: T }
   | { success: false; error: Error };
 ```
 
-기존 선언을 다시 열어 확장해야 하는 declaration merging이나 module augmentation에는 `interface`를 사용한다. 기존 코드가 `interface`를 일관되게 사용하고 있다면 선호만을 이유로 `type`으로 변경하지 않고 저장소의 관례를 따른다.
+객체 타입을 확장할 때는 `&` 대신 `interface`의 `extends`를 사용한다. `extends`는 충돌하는 프로퍼티를 오류로 알려 주지만, `&`는 충돌한 프로퍼티를 조용히 `never`로 만든다. 타입 매개변수나 유니온처럼 `interface`가 확장할 수 없는 타입에만 `&`를 사용한다.
+
+```ts
+interface Admin extends User {
+  level: number;
+}
+
+type WithId<T> = T & { id: string };
+```
+
+같은 범위에서 하나의 이름을 두 번 선언하지 않는다. 같은 이름의 `interface`는 자동으로 병합되어 멤버가 여러 곳에 흩어지고, 타입과 값이 같은 이름을 쓰면 식별자가 무엇을 가리키는지 알기 어렵다. 스키마와 추론 타입처럼 짝을 이루는 값과 타입에도 서로 다른 이름을 사용한다.
+
+```ts
+const userSchema = z.object({ id: z.string() });
+type User = z.infer<typeof userSchema>;
+```
+
+declaration merging은 `declare global`이나 `declare module`로 외부 선언을 확장하는 module augmentation에만 사용한다. 기존 코드가 `type`을 일관되게 사용하고 있다면 선호만을 이유로 `interface`로 변경하지 않고 저장소의 관례를 따른다.
 
 ## 조건 분기 선택하기
 
 함수의 나머지 로직을 진행할 수 없는 조건, 유효하지 않은 입력, 예외적인 상태는 guard clause와 early return으로 먼저 처리한다. 조건을 만족하지 않는 경로를 일찍 종료해 정상 흐름의 중첩을 줄이고, 앞선 분기가 항상 반환하거나 예외를 던진다면 불필요한 `else`를 사용하지 않는다.
 
 ```ts
-type DiscountUser = {
+interface DiscountUser {
   isPremium: boolean;
-};
+}
 
 function calculateDiscount(user: DiscountUser, amount: number): number {
   if (!user.isPremium) return 0;
@@ -102,13 +125,13 @@ function getRoleLabel(role: UserRole): string {
 
 ## `satisfies`와 `as` 선택하기
 
-직접 선언하는 값이 특정 타입의 조건을 만족하는지 검사하면서 값의 구체적인 추론 타입을 유지하려면 `satisfies`를 사용한다.
+직접 선언하는 값이 특정 타입의 조건을 만족하는지 검사하면서 값의 구체적인 추론 타입을 유지하려면 `satisfies`를 사용한다. 객체 리터럴에 `as Config`처럼 단언하면 누락된 프로퍼티도 검사하지 않으므로 사용하지 않는다.
 
 ```ts
-type Config = {
+interface Config {
   mode: "development" | "production";
   port: number;
-};
+}
 
 const config = {
   mode: "production",
@@ -116,15 +139,19 @@ const config = {
 } satisfies Config;
 ```
 
-값이 특정 타입이라는 사실을 컴파일러보다 개발자가 더 잘 알고 있고, 그 사실이 외부 계약으로 보장될 때는 `as`를 사용한다. `as`는 타입을 검사하지 않으므로 타입 오류를 없애기 위한 목적으로 사용하지 않는다.
+`as`는 타입을 검사하지 않으므로 타입 오류를 없애거나 값의 타입을 좁히기 위해 사용하지 않는다. 타입 가드나 검증 로직으로 런타임에 확인해 좁힌다.
 
 ```ts
-// 정적 HTML에서 해당 id의 요소가 canvas임을 보장한다.
-const canvas = document.getElementById("main-canvas") as HTMLCanvasElement;
+const canvas = document.getElementById("main-canvas");
+
+if (!(canvas instanceof HTMLCanvasElement)) {
+  throw new Error("main-canvas element is missing");
+}
+
 const context = canvas.getContext("2d");
 ```
 
-값의 타입을 런타임에 보장할 수 없다면 `as`로 단언하지 않고 타입 가드나 검증 로직으로 확인한다.
+`as const`처럼 값의 타입을 좁히지 않는 단언은 사용할 수 있다. 외부 라이브러리의 잘못된 타입처럼 단언이 불가피하다면 가능한 한 좁은 범위에 두고 이유를 주석으로 남긴다.
 
 ## Exhaustive Check
 
