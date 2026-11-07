@@ -64,24 +64,41 @@ type Result<T> =
   | { success: false; error: Error };
 ```
 
-객체 타입을 확장할 때는 `&` 대신 `interface`의 `extends`를 사용한다. `extends`는 충돌하는 프로퍼티를 오류로 알려 주지만, `&`는 충돌한 프로퍼티를 조용히 `never`로 만든다. 타입 매개변수나 유니온처럼 `interface`가 확장할 수 없는 타입에만 `&`를 사용한다.
+외부 라이브러리나 전역 객체의 타입을 확장해야 하면 먼저 라이브러리가 제공하는 방법을 확인한다. 제네릭으로 범위를 지정할 수 있으면 그 방식을 사용한다. 값이 실제로 존재하는 범위에만 타입이 적용된다.
 
 ```ts
-interface Admin extends User {
-  level: number;
+const auth = createMiddleware<{ Variables: { user: User } }>(async (c, next) => {
+  c.set("user", await getUser(c));
+  await next();
+});
+
+app.get("/me", auth, (c) => c.json(c.get("user")));
+```
+
+문서화된 등록용 interface가 있으면 그 interface를 확장한다.
+
+```ts
+const router = createRouter({ routeTree });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
 }
-
-type WithId<T> = T & { id: string };
 ```
 
-같은 범위에서 하나의 이름을 두 번 선언하지 않는다. 같은 이름의 `interface`는 자동으로 병합되어 멤버가 여러 곳에 흩어지고, 타입과 값이 같은 이름을 쓰면 식별자가 무엇을 가리키는지 알기 어렵다. 스키마와 추론 타입처럼 짝을 이루는 값과 타입에도 서로 다른 이름을 사용한다.
+제공되는 방법이 없을 때만 `declare module`이나 `declare global`로 확장한다. 선언 파일은 `import`나 `export`가 있는 모듈이어야 한다. 그렇지 않으면 확장이 아니라 새 모듈 선언이 되어 오류 없이 무시된다. 실제로 타입을 선언한 모듈을 대상으로 하고, 항상 존재한다고 보장되지 않는 값은 선택 속성으로 선언한다.
 
 ```ts
-const userSchema = z.object({ id: z.string() });
-type User = z.infer<typeof userSchema>;
-```
+// src/types/express.d.ts
+export {};
 
-declaration merging은 `declare global`이나 `declare module`로 외부 선언을 확장하는 module augmentation에만 사용한다. 기존 코드가 `type`을 일관되게 사용하고 있다면 선호만을 이유로 `interface`로 변경하지 않고 저장소의 관례를 따른다.
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: { id: string };
+  }
+}
+```
 
 ## 조건 분기 선택하기
 
