@@ -93,8 +93,12 @@ interface DiscountUser {
 }
 
 function calculateDiscount(user: DiscountUser, amount: number): number {
-  if (!user.isPremium) return 0;
-  if (amount < 100) return 0;
+  if (!user.isPremium) {
+    return 0;
+  }
+  if (amount < 100) {
+    return 0;
+  }
 
   return amount * 0.1;
 }
