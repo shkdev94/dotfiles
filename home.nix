@@ -7,6 +7,14 @@
 let
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
   create_symlink = path: config.lib.file.mkOutOfStoreSymlink path;
+  # Claude Code only discovers skills one level deep, and ~/.claude/skills also
+  # holds app-synced skills, so link each skill directory individually.
+  claudeSkillLinks = lib.mapAttrs' (
+    name: _:
+    lib.nameValuePair ".claude/skills/${name}" {
+      source = create_symlink "${dotfiles}/claude/skills/${name}";
+    }
+  ) (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./claude/skills));
   gh-attach = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "gh-attach";
     version = "0.4.3";
@@ -60,6 +68,16 @@ in
   home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
   home.file.".pi/agent/prompts".source = create_symlink "${dotfiles}/pi/prompts";
   home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
+
+  home.file.".claude/settings.json" = {
+    source = create_symlink "${dotfiles}/claude/settings.json";
+    force = true;
+  };
+  home.file.".claude/CLAUDE.md" = {
+    source = create_symlink "${dotfiles}/claude/CLAUDE.md";
+    force = true;
+  };
+  imports = [ { home.file = claudeSkillLinks; } ];
 
   xdg.configFile."karabiner/karabiner.json" = {
     source = create_symlink "${dotfiles}/karabiner.json";

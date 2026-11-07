@@ -16,6 +16,8 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `packages/node/<name>/` — `buildNpmPackage`와 `importNpmLock`으로 관리하는 npm CLI 패키지의 Nix 정의, `package.json`, `package-lock.json`
 - `pi/` — Pi의 `settings.json`, `models.json`, `web-search.json`, `AGENTS.md`, `agents/`, `skills/`, `themes/atom-one-dark.json`, `mcp-adapter.json`을 `~/.pi/agent/` 아래에 각각 연결한다. Pi CLI는 Nix의 `pi-coding-agent`로 관리한다. Radian은 MCP·웹 접근을 내장하고 `radian-subagent`로 위임하며, 독립 실행 Pi에는 기존 확장을 설치하지 않는다. 인증·계정·세션 등 자동 생성 파일은 저장소 밖에 유지한다.
 - `pi/skills/` — Pi·Radian 공용 스킬(위임 권한이 있는 조율자를 위한 `subagent` 협업 스킬 포함). 에이전트 프로필은 `pi/agents/*.md` 형식으로 관리한다.
+- `claude/` — Claude Code(터미널·데스크톱 공용)의 `settings.json`과 전역 지침 `CLAUDE.md`를 `~/.claude/` 아래에 각각 연결한다. `CLAUDE.md`에는 `pi/AGENTS.md`의 소통 원칙과 근거 기반 작업 원칙을 담는다. 플러그인은 `settings.json`의 `extraKnownMarketplaces`·`enabledPlugins`로 선언하며, 설치 파일·`~/.claude.json` 등 자동 생성 상태는 저장소 밖에 유지한다. Claude Code CLI는 Homebrew cask로 설치한다.
+- `claude/skills/` — Claude Code 스킬. Claude Code는 한 단계 아래만 탐색하므로 그룹 폴더 없이 `claude/skills/<skill-name>/SKILL.md`로 두고, 각 폴더를 `~/.claude/skills/<skill-name>`에 연결한다. `pi/skills/`에서 복사해 Claude에 맞게 고친 사본이며, Figma 스킬은 `figma` 플러그인이 제공한다. 새 스킬은 `git add` 후 `nxr`을 실행해야 연결된다.
 - `flake.lock` — flake 입력의 버전을 고정하는 파일. 직접 수정하지 않는다.
 
 ## 업데이트 및 변경 사항 적용
