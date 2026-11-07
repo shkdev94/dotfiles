@@ -77,6 +77,11 @@ in
     source = create_symlink "${dotfiles}/claude/CLAUDE.md";
     force = true;
   };
+  home.file.".claude/hooks".source = create_symlink "${dotfiles}/claude/hooks";
+  home.file.".claude/agents" = {
+    source = create_symlink "${dotfiles}/claude/agents";
+    force = true;
+  };
   imports = [ { home.file = claudeSkillLinks; } ];
 
   xdg.configFile."karabiner/karabiner.json" = {
