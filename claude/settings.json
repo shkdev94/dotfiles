@@ -4,6 +4,7 @@
     "pr": ""
   },
   "agentPushNotifEnabled": true,
+  "remoteControlAtStartup": true,
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
