@@ -127,3 +127,56 @@ export function clearState(paths) {
   rmSync(paths.blocksPath, { force: true });
   rmSync(paths.lastPath, { force: true });
 }
+
+// State shared by every agent of a session (main conversation and subagents carry the same session_id):
+// <stateDir>/<session_id>/<name>.
+export function sessionStatePath(input, name, stateDir = defaultStateDir()) {
+  return join(stateDir, sanitize(input.session_id ?? "unknown") || "unknown", name);
+}
+
+// One JSON object per line. Appending a single short line is atomic enough for parallel hooks,
+// so callers never read-modify-write the file.
+export function appendJsonl(path, record) {
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, `${JSON.stringify(record)}\n`);
+}
+
+// Records in append order; a missing file or a malformed line yields nothing for that part.
+export function readJsonl(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return [];
+  }
+
+  const records = [];
+  for (const line of text.split("\n")) {
+    if (line === "") {
+      continue;
+    }
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+      // Skip a partially written or corrupted line.
+    }
+  }
+  return records;
+}
+
+// Repository root for normalizing relative paths: the nearest directory from `cwd` upward that
+// contains `.git`, or `cwd` itself when there is none. Unlike searchDirs it may pass $HOME.
+export function findRepoRoot(cwd) {
+  const start = resolve(cwd);
+  let current = start;
+  for (;;) {
+    if (existsSync(join(current, ".git"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return start;
+    }
+    current = parent;
+  }
+}
