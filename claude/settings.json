@@ -5,6 +5,7 @@
   },
   "agentPushNotifEnabled": true,
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "WebSearch",
       "WebFetch",
