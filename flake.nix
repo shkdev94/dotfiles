@@ -67,26 +67,16 @@
         {
           environment.systemPackages = with pkgs; [
             vim
-            neovim
             lazygit
             lazydocker
             ripgrep
             fd
             fzf
             jq
-            lua-language-server
-            nil
-            typescript-language-server
-            vscode-langservers-extracted
-            tailwindcss-language-server
-            biome
-            stylua
-            tree-sitter
             mise
             corepack
             uv
             (browserUse pkgs)
-            pi-coding-agent
             awscli2
             gh
             pigz

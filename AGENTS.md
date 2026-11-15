@@ -12,10 +12,8 @@ Apple Silicon(aarch64-darwin) macOS의 dotfiles를 **nix-darwin**, **home-manage
 - `zshrc` — Zsh 설정(별칭, 환경 변수, mise 활성화)
 - `karabiner.json` — Karabiner Elements 설정
 - `ghostty/` — Ghostty 터미널 설정
-- `nvim/` — Neovim 설정
 - `mise/` — 전역 mise 런타임 버전 설정
 - `packages/` — uv2nix·`buildNpmPackage`로 관리하는 Python·npm CLI 패키지
-- `pi/` — Pi 에이전트 설정, 에이전트 프로필, 스킬(`~/.pi/agent/`에 연결)
 - `claude/` — Claude Code 설정, 전역 지침, 서브에이전트, hook, 스킬(`~/.claude/`에 연결)
 
 ## 업데이트 및 변경 사항 적용
@@ -70,12 +68,10 @@ npm CLI 패키지는 `packages/node/<name>/package.json`에서 버전을 고정�
 - CLI 도구는 nix(`flake.nix`의 `environment.systemPackages`)로 설치해 `flake.lock`으로 버전을 고정하고 롤백할 수 있게 한다. 프로젝트마다 버전이 달라지는 런타임과 도구는 mise로 관리한다. Homebrew는 GUI 앱(`homebrew.casks`)과 Mac App Store 자동화(`mas`)에 사용한다.
 - Mac App Store 앱은 `homebrew.masApps`에 추가한다. 형식은 `이름 = App Store ID`이다.
 - dotfile 설정이 있는 사용자 프로그램은 `home.nix`의 `programs.<name>`으로 관리한다.
-- Radian MCP 서버는 `pi/mcp-adapter.json`의 `mcpServers`에 직접 추가한다. `pi update self`나 전역 npm 설치로 Pi CLI를 덮어쓰지 않는다. Pi CLI는 Nix의 `pi-coding-agent`만 사용하며, 기존 서브에이전트·MCP·웹 접근 npm 확장은 별도로 설치하지 않는다.
 - 이 저장소의 dotfile은 복사하지 않고 `mkOutOfStoreSymlink`로 연결하므로 원본 파일의 수정이 연결된 경로에 즉시 반영된다.
 - `flake.lock`은 직접 수정하지 않는다.
-- Pi·Claude의 인증, 계정, 세션 등 자동 생성 파일은 저장소 밖에 둔다.
+- Claude의 인증, 계정, 세션 등 자동 생성 파일은 저장소 밖에 둔다.
 - Claude Code는 스킬을 한 단계 아래만 탐색하므로 새 스킬은 그룹 폴더 없이 `claude/skills/<name>/SKILL.md`로 두고, `git add` 후 `nxr`을 실행해야 `~/.claude/skills/`에 연결된다.
-- `claude/skills/`는 `pi/skills/`를 Claude에 맞게 고친 사본이고, `claude/CLAUDE.md`의 소통 원칙과 근거 기반 작업 원칙은 `pi/AGENTS.md`와 `pi/skills/work-with-evidence`에서 가져온 것이다. 공통 내용은 한쪽을 고치면 다른 쪽도 맞춘다. Claude 전용 스킬과 `claude/CLAUDE.md`의 작업 위임 절은 사본이 아니므로 제외한다.
 - Claude Code 플러그인과 커넥터는 claude.ai 계정에서 관리하고 `claude/settings.json`에 선언하지 않는다.
 - `claude/hooks/`를 수정한 뒤에는 `node --test claude/hooks/hooks.test.mjs`로 검증한다.
 - Nix 파일은 `nixfmt`으로 포맷한다.

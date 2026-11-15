@@ -3,7 +3,7 @@
 The Nix package pins browser-use and exports two commands:
 
 - `browser-use`: the unchanged upstream CLI, including `--mcp` and `--cli-mcp`.
-- `browser-use-mcp`: the dotfiles-owned launcher used by Pi.
+- `browser-use-mcp`: the dotfiles-owned launcher for MCP clients.
 
 The launcher keeps the upstream `--mcp` tools, but overrides the loaded browser
 configuration in memory. It selects headless Google Chrome, disables reuse of an
@@ -60,8 +60,7 @@ Until the new files are tracked by Git, activate with
 `sudo darwin-rebuild switch --flake "path:$HOME/.dotfiles#mbp"` instead of `nxr`
 so Nix includes those files.
 
-Radian's built-in MCP uses `pi/mcp-adapter.json` to select
-`/run/current-system/sw/bin/browser-use-mcp`. After activation, reload Radian's
-MCP configuration. Standalone Pi no longer installs the former MCP adapter.
+Any MCP client that uses `/run/current-system/sw/bin/browser-use-mcp` should reload
+its MCP configuration after activation.
 Changing the linked client configuration alone does not install the new command.
 No Python dependency or lock-file update is required.

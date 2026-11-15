@@ -56,19 +56,6 @@ in
     ];
   };
 
-  home.file.".pi/agent/settings.json".source = create_symlink "${dotfiles}/pi/settings.json";
-  home.file.".pi/agent/themes/atom-one-dark.json" = {
-    source = create_symlink "${dotfiles}/pi/themes/atom-one-dark.json";
-    force = true;
-  };
-  home.file.".pi/agent/models.json".source = create_symlink "${dotfiles}/pi/models.json";
-  home.file.".pi/agent/web-search.json".source = create_symlink "${dotfiles}/pi/web-search.json";
-  home.file.".pi/agent/AGENTS.md".source = create_symlink "${dotfiles}/pi/AGENTS.md";
-  home.file.".pi/agent/agents".source = create_symlink "${dotfiles}/pi/agents";
-  home.file.".pi/agent/skills".source = create_symlink "${dotfiles}/pi/skills";
-  home.file.".pi/agent/prompts".source = create_symlink "${dotfiles}/pi/prompts";
-  home.file.".pi/agent/mcp-adapter.json".source = create_symlink "${dotfiles}/pi/mcp-adapter.json";
-
   home.file.".claude/settings.json" = {
     source = create_symlink "${dotfiles}/claude/settings.json";
     force = true;
@@ -91,11 +78,6 @@ in
 
   xdg.configFile."ghostty" = {
     source = create_symlink "${dotfiles}/ghostty";
-    force = true;
-  };
-
-  xdg.configFile."nvim" = {
-    source = create_symlink "${dotfiles}/nvim";
     force = true;
   };
 
@@ -127,7 +109,7 @@ in
       push = {
         autoSetupRemote = true;
       };
-      core.editor = "nvim";
+      core.editor = "vim";
       merge.conflictstyle = "zdiff3";
     };
   };

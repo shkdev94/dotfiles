@@ -1,10 +1,9 @@
-export EDITOR="nvim"
+export EDITOR="vim"
 
 # keybindings
 bindkey '^F' autosuggest-accept
 
 # aliases
-alias v='nvim'
 alias lzg='lazygit'
 alias lzd='lazydocker'
 alias nxr="sudo darwin-rebuild switch --flake ~/.dotfiles#mbp"
