@@ -20,18 +20,22 @@ import { fileURLToPath } from "node:url";
 import { evaluate as delegate } from "./delegate-to-subagent.mjs";
 import { evaluate as guardAgents } from "./delegation-guard.mjs";
 import { evaluate as guard } from "./guard-dangerous.mjs";
-import { evaluate as lint } from "./lint-on-edit.mjs";
+import { evaluate as check, parseDiagnostics, parseJsonc } from "./check-on-stop.mjs";
 import { evaluate as readonly } from "./readonly-bash.mjs";
+import { evaluate as record } from "./record-edit.mjs";
 import {
   agentKeyOf,
   appendJsonl,
+  clearState,
+  declaresPackage,
   findRepoRoot,
+  nearestDeclared,
   readJsonl,
   searchDirs,
   sessionStatePath,
   statePaths,
 } from "./project-tools.mjs";
-import { evaluate as typecheck, parseDiagnostics, parseJsonc } from "./typecheck-on-stop.mjs";
+import "./test-runners.test.mjs";
 
 const HOME = homedir();
 
@@ -143,6 +147,27 @@ function fakeBin(root, name, { exit = 0, output = "" } = {}) {
   chmodSync(path, 0o755);
 }
 
+// Fake tool run by `sh`; `body` is its text after the shebang.
+function fakeShell(root, name, body) {
+  chmodSync(writeProjectFile(root, `node_modules/.bin/${name}`, `#!/bin/sh\n${body}\n`), 0o755);
+}
+
+// Declares `names` in devDependencies of `<root>/<dir>/package.json`, merged into an existing file (other
+// fields and dependencies stay). fakeBin and fakeShell never declare anything: a tool is used only when a
+// package.json declares its package. `names` are package names or a {name: version} object.
+function declare(root, names, dir = ".") {
+  const path = join(root, dir, "package.json");
+  let pkg = {};
+  try {
+    pkg = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // No package.json yet.
+  }
+  const added = Array.isArray(names) ? Object.fromEntries(names.map((name) => [name, "1.0.0"])) : names;
+  pkg.devDependencies = { ...pkg.devDependencies, ...added };
+  writeProjectFile(root, join(dir, "package.json"), JSON.stringify(pkg));
+}
+
 function editInput(file, extra = {}) {
   return {
     session_id: "s1",
@@ -185,6 +210,109 @@ describe("project hooks with fake tools", () => {
       assert.deepEqual(searchDirs(project, home), [project, join(home, "proj")]);
     });
 
+    describe("package declarations", () => {
+      const declareIn = (dir, field, names) =>
+        writeProjectFile(
+          dir,
+          "package.json",
+          JSON.stringify({ [field]: Object.fromEntries(names.map((name) => [name, "1.0.0"])) }),
+        );
+
+      it("finds a package in dependencies and in devDependencies", () => {
+        declareIn(root, "dependencies", ["prettier"]);
+        assert.deepEqual(nearestDeclared(root, ["prettier", "oxfmt"]), new Set(["prettier"]));
+        assert.equal(declaresPackage(root, "prettier"), true);
+
+        declareIn(root, "devDependencies", ["oxfmt"]);
+        assert.deepEqual(nearestDeclared(root, ["prettier", "oxfmt"]), new Set(["oxfmt"]));
+        assert.equal(declaresPackage(root, "prettier"), false);
+      });
+
+      it("returns every requested package that the declaring package.json lists", () => {
+        writeProjectFile(
+          root,
+          "package.json",
+          JSON.stringify({ dependencies: { oxfmt: "1.0.0" }, devDependencies: { prettier: "1.0.0", eslint: "1.0.0" } }),
+        );
+        assert.deepEqual(nearestDeclared(root, ["oxfmt", "prettier", "@biomejs/biome"]), new Set(["oxfmt", "prettier"]));
+      });
+
+      it("finds the declaration in an ancestor directory", () => {
+        declareIn(root, "devDependencies", ["typescript"]);
+        const inner = join(root, "packages", "app", "src");
+        mkdirSync(inner, { recursive: true });
+        assert.equal(declaresPackage(inner, "typescript"), true);
+      });
+
+      it("uses the nearest package.json that declares any of the names, and ignores the ones above it", () => {
+        declareIn(root, "devDependencies", ["oxfmt"]);
+        declareIn(join(root, "pkg"), "devDependencies", ["prettier"]);
+        const inner = join(root, "pkg", "src");
+        mkdirSync(inner, { recursive: true });
+
+        assert.deepEqual(nearestDeclared(inner, ["oxfmt", "prettier"]), new Set(["prettier"]));
+        assert.deepEqual(nearestDeclared(root, ["oxfmt", "prettier"]), new Set(["oxfmt"]));
+        // declaresPackage asks about one name, so the package.json that declares only prettier is skipped.
+        assert.equal(declaresPackage(inner, "oxfmt"), true);
+        assert.equal(declaresPackage(inner, "prettier"), true);
+      });
+
+      it("skips a package.json that declares none of the names", () => {
+        declareIn(root, "devDependencies", ["prettier"]);
+        declareIn(join(root, "pkg"), "devDependencies", ["left-pad"]);
+        const inner = join(root, "pkg", "src");
+        mkdirSync(inner, { recursive: true });
+
+        assert.deepEqual(nearestDeclared(inner, ["prettier"]), new Set(["prettier"]));
+      });
+
+      it("does not look above the directory that contains .git", async () => {
+        const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
+        try {
+          declareIn(outer, "devDependencies", ["prettier"]);
+          const inner = join(outer, "project");
+          mkdirSync(join(inner, ".git"), { recursive: true });
+          assert.deepEqual(nearestDeclared(inner, ["prettier"]), new Set());
+          assert.equal(declaresPackage(inner, "prettier"), false);
+        } finally {
+          rmSync(outer, { recursive: true, force: true });
+        }
+      });
+
+      it("returns nothing when package.json is missing, unparsable, or not an object", () => {
+        assert.deepEqual(nearestDeclared(root, ["prettier"]), new Set());
+
+        writeProjectFile(root, "package.json", "{ not json");
+        assert.deepEqual(nearestDeclared(root, ["prettier"]), new Set());
+
+        writeProjectFile(root, "package.json", "[]");
+        assert.deepEqual(nearestDeclared(root, ["prettier"]), new Set());
+
+        writeProjectFile(root, "package.json", JSON.stringify({ devDependencies: ["prettier"], dependencies: null }));
+        assert.deepEqual(nearestDeclared(root, ["prettier"]), new Set());
+      });
+
+      it("continues to an ancestor when the nearest package.json is broken", () => {
+        declareIn(root, "devDependencies", ["prettier"]);
+        writeProjectFile(root, "pkg/package.json", "{ not json");
+        assert.equal(declaresPackage(join(root, "pkg"), "prettier"), true);
+      });
+
+      it("does not count a top-level prettier key, or a package only named in scripts or peerDependencies", () => {
+        writeProjectFile(
+          root,
+          "package.json",
+          JSON.stringify({
+            prettier: { semi: false },
+            scripts: { format: "prettier --write ." },
+            peerDependencies: { prettier: "3.0.0" },
+            optionalDependencies: { prettier: "3.0.0" },
+          }),
+        );
+        assert.equal(declaresPackage(root, "prettier"), false);
+      });
+    });
+
     it("normalizes the agent key", () => {
       assert.equal(agentKeyOf({ agent_id: "agent-abc" }), "abc");
       assert.equal(agentKeyOf({ agent_id: "abc" }), "abc");
@@ -193,171 +321,44 @@ describe("project hooks with fake tools", () => {
     });
   });
 
-  describe("lint-on-edit", () => {
-    it("passes files with a non-target extension", () => {
+  describe("record-edit", () => {
+    it("passes files with a non-target extension and does not record them", () => {
       writeProjectFile(root, "eslint.config.js");
       fakeBin(root, "eslint", { exit: 1, output: "boom" });
       const file = writeProjectFile(root, "README.md", "x");
-      assert.equal(lint(editInput(file), { stateDir }), null);
+      assert.equal(record(editInput(file), { stateDir }), null);
+      assert.equal(existsSync(statePaths(editInput(file), stateDir).filesPath), false);
     });
 
-    it("passes when the file does not exist", () => {
+    it("passes when the file does not exist and does not record it", () => {
       writeProjectFile(root, "eslint.config.js");
       fakeBin(root, "eslint", { exit: 1, output: "boom" });
-      assert.equal(lint(editInput(join(root, "gone.js")), { stateDir }), null);
+      assert.equal(record(editInput(join(root, "gone.js")), { stateDir }), null);
+      assert.equal(existsSync(statePaths(editInput(join(root, "gone.js")), stateDir).filesPath), false);
     });
 
-    it("passes when the project has no linter", () => {
+    it("ignores tools other than Edit, Write and MultiEdit", () => {
       const file = writeProjectFile(root, "src/a.ts", "x");
-      assert.equal(lint(editInput(file), { stateDir }), null);
+      assert.equal(record(editInput(file, { tool_name: "Read" }), { stateDir }), null);
+      assert.equal(existsSync(statePaths(editInput(file), stateDir).filesPath), false);
     });
 
-    it("does not use linters installed above the .git boundary", () => {
-      const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
-      try {
-        writeProjectFile(outer, "eslint.config.js");
-        fakeBin(outer, "eslint", { exit: 1, output: "boom" });
-        const inner = join(outer, "project");
-        mkdirSync(join(inner, ".git"), { recursive: true });
-        const file = writeProjectFile(inner, "a.js", "x");
-        assert.equal(lint(editInput(file), { stateDir }), null);
-      } finally {
-        rmSync(outer, { recursive: true, force: true });
-      }
-    });
-
-    it("blocks with the linter output when it exits non-zero", () => {
+    it("never runs a linter or prints anything, even when a linter would fail", () => {
+      const log = join(stateDir, "eslint.log");
       writeProjectFile(root, "eslint.config.js");
-      fakeBin(root, "eslint", { exit: 1, output: "\u001b[31m3:1  error  no-undef\u001b[0m" });
-      const file = writeProjectFile(root, "src/a.js", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.equal(result.decision, "block");
-      assert.match(result.reason, /\[ESLint\] exit 1/);
-      assert.ok(result.reason.includes(file));
-      assert.ok(result.reason.includes("3:1  error  no-undef"));
-      assert.ok(!result.reason.includes("\u001b"));
-      assert.ok(result.reason.includes(`CWD: ${root}`));
-    });
-
-    it("passes when the linter exits 0, even with output", () => {
-      writeProjectFile(root, "eslint.config.js");
-      fakeBin(root, "eslint", { exit: 0, output: "1:1 warning something" });
-      const file = writeProjectFile(root, "a.js", "x");
-      assert.equal(lint(editInput(file), { stateDir }), null);
-    });
-
-    it("skips ESLint when there is a bin but no config", () => {
-      fakeBin(root, "eslint", { exit: 1, output: "boom" });
-      const file = writeProjectFile(root, "a.js", "x");
-      assert.equal(lint(editInput(file), { stateDir }), null);
-    });
-
-    it("runs ESLint from the config directory for legacy configs and .vue files", () => {
-      writeProjectFile(root, "pkg/.eslintrc.json", "{}");
-      fakeBin(root, "eslint", { exit: 1, output: "vue problem" });
-      const file = writeProjectFile(root, "pkg/src/App.vue", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.equal(result.decision, "block");
-      assert.ok(result.reason.includes(`CWD: ${join(root, "pkg")}`));
-    });
-
-    it("runs Biome in lint-only mode from the biome.json directory", () => {
-      writeProjectFile(root, "pkg/biome.json", "{}");
-      fakeBin(root, "biome", { exit: 1, output: "lint/suspicious" });
-      const file = writeProjectFile(root, "pkg/a.ts", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.ok(result.reason.includes("[Biome] exit 1"));
-      assert.ok(result.reason.includes(`CWD: ${join(root, "pkg")}`));
-      assert.ok(
-        result.reason.includes(`ARGS: lint --no-errors-on-unmatched --files-ignore-unknown=true ${file}`),
-      );
-    });
-
-    it("passes ESLint exit 2 (configuration or internal error) but still blocks exit 1", () => {
-      writeProjectFile(root, "eslint.config.js");
-      fakeBin(root, "eslint", { exit: 2, output: "Oops! Something went wrong!" });
-      const file = writeProjectFile(root, "a.js", "x");
-      assert.equal(lint(editInput(file), { stateDir }), null);
-
-      fakeBin(root, "eslint", { exit: 1, output: "1:1 error" });
-      assert.equal(lint(editInput(file), { stateDir }).decision, "block");
-    });
-
-    it("keeps blocking on Biome and oxlint exit 2", () => {
-      fakeBin(root, "biome", { exit: 2, output: "b" });
-      fakeBin(root, "oxlint", { exit: 2, output: "o" });
+      fakeShell(root, "eslint", `echo run >> "${log}"\nexit 1`);
       const file = writeProjectFile(root, "a.js", "x");
 
-      const result = lint(editInput(file), { stateDir });
+      assert.equal(record(editInput(file), { stateDir }), null);
 
-      assert.ok(result.reason.includes("[Biome] exit 2"));
-      assert.ok(result.reason.includes("[oxlint] exit 2"));
+      assert.equal(existsSync(log), false);
+      assert.equal(readFileSync(statePaths(editInput(file), stateDir).filesPath, "utf8"), `${file}\n`);
     });
 
-    it("runs oxlint with --no-error-on-unmatched-pattern so ignored files pass", () => {
-      fakeBin(root, "oxlint", { exit: 1, output: "o" });
-      const file = writeProjectFile(root, "a.js", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.ok(result.reason.includes(`ARGS: --no-error-on-unmatched-pattern ${file}`));
-    });
-
-    it("tells Claude to leave pre-existing errors out of scope", () => {
-      writeProjectFile(root, "eslint.config.js");
-      fakeBin(root, "eslint", { exit: 1, output: "x" });
-      const file = writeProjectFile(root, "a.js", "x");
-
-      const { reason } = lint(editInput(file), { stateDir });
-
-      assert.ok(reason.includes("이번 변경으로 생긴 오류는 고친다."));
-      assert.ok(reason.includes("원래 있던 오류는 작업 범위 밖이면 고치지 말고 보고에 남긴다."));
-    });
-
-    it("runs Biome and oxlint from the bin project when no config exists", () => {
-      fakeBin(root, "biome", { exit: 1, output: "b" });
-      fakeBin(root, "oxlint", { exit: 1, output: "o" });
-      const file = writeProjectFile(root, "src/a.js", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.ok(result.reason.includes("[Biome]"));
-      assert.ok(result.reason.includes("[oxlint]"));
-      assert.equal(result.reason.split(`CWD: ${root}`).length, 3);
-    });
-
-    it("runs every detected linter and reports only the failing ones", () => {
-      writeProjectFile(root, "eslint.config.mjs");
-      writeProjectFile(root, ".oxlintrc.json", "{}");
-      fakeBin(root, "eslint", { exit: 1, output: "eslint says no" });
-      fakeBin(root, "oxlint", { exit: 1, output: "oxlint says no" });
-      fakeBin(root, "biome", { exit: 0, output: "fine" });
-      const file = writeProjectFile(root, "a.mjs", "x");
-
-      const result = lint(editInput(file), { stateDir });
-
-      assert.ok(result.reason.includes("eslint says no"));
-      assert.ok(result.reason.includes("oxlint says no"));
-      assert.ok(!result.reason.includes("Biome"));
-    });
-
-    it("truncates long linter output", () => {
-      writeProjectFile(root, "eslint.config.js");
-      fakeBin(root, "eslint", { exit: 1, output: "x".repeat(20_000) });
-      const file = writeProjectFile(root, "a.js", "x");
-      assert.ok(lint(editInput(file), { stateDir }).reason.length < 6000);
-    });
-
-    it("records edited TS files under the normalized agent key, even without linters", () => {
+    it("records edited TS files under the normalized agent key", () => {
       const file = writeProjectFile(root, "src/a.ts", "x");
-      lint(editInput(file, { agent_id: "agent-abc", agent_type: "worker" }), { stateDir });
-      lint(editInput(file), { stateDir });
+      record(editInput(file, { agent_id: "agent-abc", agent_type: "worker" }), { stateDir });
+      record(editInput(file), { stateDir });
 
       const subagent = statePaths({ session_id: "s1", agent_id: "agent-abc" }, stateDir);
       const main = statePaths({ session_id: "s1" }, stateDir);
@@ -366,14 +367,1172 @@ describe("project hooks with fake tools", () => {
       assert.equal(readFileSync(main.filesPath, "utf8"), `${file}\n`);
     });
 
-    it("does not record non-TS files", () => {
-      const file = writeProjectFile(root, "src/a.js", "x");
-      lint(editInput(file), { stateDir });
-      assert.equal(existsSync(statePaths({ session_id: "s1" }, stateDir).filesPath), false);
+    it("records JS and framework files, not other extensions", () => {
+      const names = ["a.js", "b.jsx", "c.mjs", "d.cjs", "e.vue", "f.svelte"];
+      const expected = names.map((name) => writeProjectFile(root, `src/${name}`, "x"));
+      for (const file of expected) {
+        record(editInput(file), { stateDir });
+      }
+      record(editInput(writeProjectFile(root, "src/README.md", "x")), { stateDir });
+      record(editInput(writeProjectFile(root, "src/data.json", "{}")), { stateDir });
+
+      const recorded = readFileSync(statePaths({ session_id: "s1" }, stateDir).filesPath, "utf8");
+      assert.equal(recorded, expected.map((file) => `${file}\n`).join(""));
     });
   });
 
-  describe("typecheck-on-stop", () => {
+  describe("lint at stop (check-on-stop)", () => {
+    // Records `file`, then stops.
+    async function stopAfter(file, options = {}, input = {}) {
+      record(editInput(file), { stateDir });
+      return check(stopInput({ cwd: root, ...input }), { stateDir, ...options });
+    }
+
+    it("passes when the project has no linter", async () => {
+      const file = writeProjectFile(root, "src/a.ts", "x");
+      assert.equal(await stopAfter(file), null);
+    });
+
+    it("does not use linters installed above the .git boundary", async () => {
+      const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
+      try {
+        writeProjectFile(outer, "eslint.config.js");
+        fakeBin(outer, "eslint", { exit: 1, output: "boom" });
+        const inner = join(outer, "project");
+        mkdirSync(join(inner, ".git"), { recursive: true });
+        const file = writeProjectFile(inner, "a.js", "x");
+        assert.equal(await stopAfter(file), null);
+      } finally {
+        rmSync(outer, { recursive: true, force: true });
+      }
+    });
+
+    it("blocks with the linter output when it exits non-zero", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "\u001b[31m3:1  error  no-undef\u001b[0m" });
+      const file = writeProjectFile(root, "src/a.js", "x");
+
+      const result = await stopAfter(file);
+
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.startsWith("[린트]\n"));
+      assert.match(result.reason, /\[ESLint\] exit 1/);
+      assert.ok(result.reason.includes(file));
+      assert.ok(result.reason.includes("3:1  error  no-undef"));
+      assert.ok(!result.reason.includes("\u001b"));
+      assert.ok(result.reason.includes(`CWD: ${root}`));
+    });
+
+    it("passes when the linter exits 0, even with output", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 0, output: "1:1 warning something" });
+      const file = writeProjectFile(root, "a.js", "x");
+      assert.equal(await stopAfter(file), null);
+    });
+
+    it("skips a declared ESLint when there is a bin but no config", async () => {
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "boom" });
+      const file = writeProjectFile(root, "a.js", "x");
+      assert.equal(await stopAfter(file), null);
+    });
+
+    describe("a linter that no package.json declares", () => {
+      it("is not run for oxlint, ESLint or Biome, even with a config and a bin", async () => {
+        writeProjectFile(root, "eslint.config.js");
+        writeProjectFile(root, ".oxlintrc.json", "{}");
+        writeProjectFile(root, "biome.json", "{}");
+        for (const name of ["eslint", "oxlint", "biome"]) {
+          fakeBin(root, name, { exit: 1, output: `${name} says no` });
+        }
+        const file = writeProjectFile(root, "src/a.js", "x");
+
+        assert.equal(await stopAfter(file), null);
+      });
+
+      it("is not run when only a bin exists", async () => {
+        for (const name of ["eslint", "oxlint", "biome"]) {
+          fakeBin(root, name, { exit: 1, output: `${name} says no` });
+        }
+        assert.equal(await stopAfter(writeProjectFile(root, "a.js", "x")), null);
+      });
+
+      it("is not run for ESLint when it is declared and has a bin but no config", async () => {
+        declare(root, ["eslint"]);
+        fakeBin(root, "eslint", { exit: 1, output: "boom" });
+        assert.equal(await stopAfter(writeProjectFile(root, "a.js", "x")), null);
+      });
+
+      it("is not run when only scripts or peerDependencies or a top-level key mention it", async () => {
+        writeProjectFile(root, "eslint.config.js");
+        writeProjectFile(
+          root,
+          "package.json",
+          JSON.stringify({
+            scripts: { lint: "eslint ." },
+            peerDependencies: { eslint: "9.0.0" },
+            optionalDependencies: { eslint: "9.0.0" },
+            eslintConfig: {},
+          }),
+        );
+        fakeBin(root, "eslint", { exit: 1, output: "boom" });
+        assert.equal(await stopAfter(writeProjectFile(root, "a.js", "x")), null);
+      });
+
+      it("is run once a package.json declares it, in dependencies as well as devDependencies", async () => {
+        writeProjectFile(root, "eslint.config.js");
+        writeProjectFile(root, "package.json", JSON.stringify({ dependencies: { eslint: "9.0.0" } }));
+        fakeBin(root, "eslint", { exit: 1, output: "boom" });
+        assert.equal((await stopAfter(writeProjectFile(root, "a.js", "x"))).decision, "block");
+      });
+
+      it("is not run when the package.json that declares it is above the .git boundary", async () => {
+        const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
+        try {
+          declare(outer, ["eslint"]);
+          const inner = join(outer, "project");
+          mkdirSync(join(inner, ".git"), { recursive: true });
+          writeProjectFile(inner, "eslint.config.js");
+          fakeBin(inner, "eslint", { exit: 1, output: "boom" });
+          assert.equal(await stopAfter(writeProjectFile(inner, "a.js", "x")), null);
+        } finally {
+          rmSync(outer, { recursive: true, force: true });
+        }
+      });
+
+      it("is run from a subpackage when only the root package.json declares it", async () => {
+        declare(root, ["eslint"]);
+        writeProjectFile(root, "eslint.config.js");
+        fakeBin(root, "eslint", { exit: 1, output: "boom" });
+        const result = await stopAfter(writeProjectFile(root, "packages/app/src/a.js", "x"));
+        assert.equal(result.decision, "block");
+      });
+
+      it("is chosen by the nearest package.json that declares a linter, not by the root", async () => {
+        declare(root, ["oxlint"]);
+        declare(root, ["eslint"], "packages/app");
+        writeProjectFile(root, "packages/app/eslint.config.js");
+        for (const name of ["eslint", "oxlint"]) {
+          fakeShell(root, name, `echo "${name} says no"\nexit 1`);
+        }
+        const result = await stopAfter(writeProjectFile(root, "packages/app/src/a.js", "x"));
+        assert.ok(result.reason.includes("eslint says no"));
+        assert.ok(!result.reason.includes("oxlint says no"));
+      });
+
+      it("is not run for a file whose nearest declaring package.json lists only other linters", async () => {
+        declare(root, ["eslint"]);
+        declare(root, ["@biomejs/biome"], "packages/app");
+        writeProjectFile(root, "eslint.config.js");
+        fakeBin(root, "eslint", { exit: 1, output: "eslint says no" });
+        // Biome is declared but has no bin, and the root's ESLint is behind the nearer declaration.
+        assert.equal(await stopAfter(writeProjectFile(root, "packages/app/a.js", "x")), null);
+      });
+    });
+
+    it("runs ESLint from the config directory for legacy configs and .vue files", async () => {
+      writeProjectFile(root, "pkg/.eslintrc.json", "{}");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "vue problem" });
+      const file = writeProjectFile(root, "pkg/src/App.vue", "x");
+
+      const result = await stopAfter(file);
+
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.includes(`CWD: ${join(root, "pkg")}`));
+    });
+
+    it("runs Biome in lint-only mode from the biome.json directory", async () => {
+      writeProjectFile(root, "pkg/biome.json", "{}");
+      declare(root, ["@biomejs/biome"]);
+      // biome.json also makes Biome a formatter: `format` passes, `lint` fails.
+      fakeShell(root, "biome", `case "$1" in format) exit 0;; esac\necho "CWD: $(pwd -P)"\necho "ARGS: $*"\necho "lint/suspicious"\nexit 1`);
+      const file = writeProjectFile(root, "pkg/a.ts", "x");
+
+      const result = await stopAfter(file);
+
+      assert.ok(result.reason.includes("[Biome] exit 1"));
+      assert.ok(result.reason.includes(`CWD: ${join(root, "pkg")}`));
+      assert.ok(
+        result.reason.includes(`ARGS: lint --no-errors-on-unmatched --files-ignore-unknown=true ${file}`),
+      );
+    });
+
+    it("finds Biome configs named .biome.json and .biome.jsonc", async () => {
+      declare(root, ["@biomejs/biome"]);
+      for (const name of [".biome.json", ".biome.jsonc"]) {
+        writeProjectFile(root, `${name}-dir/${name}`, "{}");
+        fakeShell(root, "biome", `case "$1" in format) exit 0;; esac\necho "CWD: $(pwd -P)"\nexit 1`);
+        const file = writeProjectFile(root, `${name}-dir/a.ts`, "x");
+
+        const result = await stopAfter(file);
+
+        assert.ok(result.reason.includes(`CWD: ${join(root, `${name}-dir`)}`), name);
+        clearState(statePaths(stopInput(), stateDir));
+      }
+    });
+
+    it("tells about ESLint exit 2 (configuration or internal error) without blocking, but still blocks exit 1", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 2, output: "Oops! Something went wrong!" });
+      const file = writeProjectFile(root, "a.js", "x");
+
+      const first = await stopAfter(file);
+
+      assert.equal(first.decision, undefined);
+      assert.equal(first.hookSpecificOutput.hookEventName, "Stop");
+      assert.match(first.hookSpecificOutput.additionalContext, /eslint/);
+      assert.match(first.hookSpecificOutput.additionalContext, /Oops! Something went wrong!/);
+      assert.match(first.hookSpecificOutput.additionalContext, /검증하지 못했다/);
+
+      fakeBin(root, "eslint", { exit: 1, output: "1:1 error" });
+      assert.equal((await stopAfter(file)).decision, "block");
+    });
+
+    it("says an ESLint exit 2 once across blocks", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeBin(root, "eslint", { exit: 2, output: "Oops" });
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const file = writeProjectFile(root, "src/a.ts", "x");
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      record(editInput(file), { stateDir });
+
+      const first = await check(input, { stateDir });
+      const second = await check(input, { stateDir });
+
+      assert.ok(first.reason.includes("[타입 검사]"));
+      assert.ok(first.reason.includes("eslint가 결과를 내지 못하고 끝나 검증하지 못했다"));
+      assert.ok(!second.reason.includes("eslint가"));
+      assert.equal(readFileSync(statePaths(input, stateDir).notifiedPath, "utf8"), "lint:eslint:tool\n");
+    });
+
+    for (const [name, label, packageName] of [
+      ["biome", "Biome", "@biomejs/biome"],
+      ["oxlint", "oxlint", "oxlint"],
+    ]) {
+      it(`keeps blocking on ${label} exit 2`, async () => {
+        declare(root, [packageName]);
+        fakeBin(root, name, { exit: 2, output: "x" });
+        const file = writeProjectFile(root, "a.js", "x");
+
+        const result = await stopAfter(file);
+
+        assert.ok(result.reason.includes(`[${label}] exit 2`));
+      });
+    }
+
+    it("runs oxlint with --no-error-on-unmatched-pattern so ignored files pass", async () => {
+      declare(root, ["oxlint"]);
+      fakeBin(root, "oxlint", { exit: 1, output: "o" });
+      const file = writeProjectFile(root, "a.js", "x");
+
+      const result = await stopAfter(file);
+
+      assert.ok(result.reason.includes(`ARGS: --no-error-on-unmatched-pattern ${file}`));
+    });
+
+    it("tells Claude to leave pre-existing errors out of scope", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "x" });
+      const file = writeProjectFile(root, "a.js", "x");
+
+      const { reason } = await stopAfter(file);
+
+      assert.ok(reason.includes("이번 변경으로 생긴 오류는 고친다."));
+      assert.ok(reason.includes("원래 있던 오류는 작업 범위 밖이면 고치지 말고 보고에 남긴다."));
+    });
+
+    for (const [name, packageName] of [
+      ["biome", "@biomejs/biome"],
+      ["oxlint", "oxlint"],
+    ]) {
+      it(`runs ${name} from the bin project when no config exists`, async () => {
+        declare(root, [packageName]);
+        // A declared Biome is also a formatter: its `format` run passes, `lint` fails.
+        fakeShell(root, name, `case "$1" in format) exit 0;; esac\necho "CWD: $(pwd -P)"\nexit 1`);
+        const file = writeProjectFile(root, "src/a.js", "x");
+
+        const result = await stopAfter(file);
+
+        assert.equal(result.reason.split(`CWD: ${root}`).length, 2);
+      });
+    }
+
+    describe("one linter per file, in the order oxlint, ESLint, Biome", () => {
+      // Every linter logs its name and the files it was given, then fails with its own message.
+      // A declared Biome is also a formatter; its `format` run is not a lint run, so it passes silently.
+      function fakeLinters(names) {
+        const log = join(stateDir, "lint.log");
+        for (const name of names) {
+          const skipFormat = name === "biome" ? 'case "$1" in format) exit 0;; esac\n' : "";
+          fakeShell(root, name, `${skipFormat}echo "${name} $*" >> "${log}"\necho "${name} says no"\nexit 1`);
+        }
+        return () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []);
+      }
+
+      it("runs only oxlint when oxlint, ESLint and Biome are all detected", async () => {
+        declare(root, ["oxlint", "eslint", "@biomejs/biome"]);
+        writeProjectFile(root, "eslint.config.mjs");
+        declare(root, ["eslint"]);
+        writeProjectFile(root, ".oxlintrc.json", "{}");
+        const runs = fakeLinters(["eslint", "oxlint", "biome"]);
+        const file = writeProjectFile(root, "a.mjs", "x");
+
+        const result = await stopAfter(file);
+
+        assert.ok(result.reason.includes("oxlint says no"));
+        assert.ok(!result.reason.includes("eslint says no"));
+        assert.ok(!result.reason.includes("biome says no"));
+        assert.deepEqual(runs(), [`oxlint --no-error-on-unmatched-pattern ${file}`]);
+      });
+
+      it("falls back to ESLint when oxlint is not declared, and to Biome when ESLint has no config", async () => {
+        declare(root, ["eslint", "@biomejs/biome"]);
+        writeProjectFile(root, "eslint.config.mjs");
+        declare(root, ["eslint"]);
+        const runs = fakeLinters(["eslint", "biome"]);
+        const file = writeProjectFile(root, "a.mjs", "x");
+
+        const withEslint = await stopAfter(file);
+
+        assert.ok(withEslint.reason.includes("eslint says no"));
+        assert.deepEqual(runs(), [`eslint ${file}`]);
+
+        rmSync(join(root, "eslint.config.mjs"));
+        rmSync(join(stateDir, "lint.log"));
+        const withBiome = await stopAfter(file);
+
+        assert.ok(withBiome.reason.includes("biome says no"));
+        assert.ok(!withBiome.reason.includes("eslint says no"));
+        assert.deepEqual(runs(), [`biome lint --no-errors-on-unmatched --files-ignore-unknown=true ${file}`]);
+      });
+
+      it("falls back to ESLint when oxlint is declared but not installed", async () => {
+        declare(root, ["oxlint", "eslint"]);
+        writeProjectFile(root, "eslint.config.mjs");
+        const runs = fakeLinters(["eslint"]);
+        const file = writeProjectFile(root, "a.mjs", "x");
+
+        const result = await stopAfter(file);
+
+        assert.ok(result.reason.includes("eslint says no"));
+        assert.deepEqual(runs(), [`eslint ${file}`]);
+      });
+
+      it("does not run an undeclared oxlint even when it is installed", async () => {
+        declare(root, ["@biomejs/biome"]);
+        const runs = fakeLinters(["oxlint", "biome"]);
+        const file = writeProjectFile(root, "a.mjs", "x");
+
+        const result = await stopAfter(file);
+
+        assert.ok(result.reason.includes("biome says no"));
+        assert.deepEqual(runs(), [`biome lint --no-errors-on-unmatched --files-ignore-unknown=true ${file}`]);
+      });
+
+      it("picks per file: oxlint for scripts, ESLint for the files oxlint does not handle", async () => {
+        declare(root, ["oxlint", "eslint"]);
+        writeProjectFile(root, "eslint.config.mjs");
+        declare(root, ["eslint"]);
+        writeProjectFile(root, ".oxlintrc.json", "{}");
+        const runs = fakeLinters(["eslint", "oxlint"]);
+        const script = writeProjectFile(root, "a.ts", "x");
+        const vue = writeProjectFile(root, "b.vue", "x");
+        record(editInput(script), { stateDir });
+
+        const result = await stopAfter(vue);
+
+        assert.ok(result.reason.includes("oxlint says no"));
+        assert.ok(result.reason.includes("eslint says no"));
+        assert.deepEqual(runs().sort(), [`eslint ${vue}`, `oxlint --no-error-on-unmatched-pattern ${script}`]);
+      });
+    });
+
+    it("truncates long linter output", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "x".repeat(20_000) });
+      const file = writeProjectFile(root, "a.js", "x");
+
+      const { reason } = await stopAfter(file);
+
+      assert.ok(reason.length < 6500);
+      assert.match(reason, /자 생략\)/);
+    });
+
+    it("runs a linter once with all the files it applies to", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "x" });
+      const first = writeProjectFile(root, "src/a.js", "x");
+      const second = writeProjectFile(root, "src/b.js", "x");
+      record(editInput(first), { stateDir });
+      record(editInput(second), { stateDir });
+
+      const { reason } = await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.equal(reason.split("ARGS:").length, 2);
+      assert.ok(reason.includes(`ARGS: ${first} ${second}`));
+    });
+
+    it("lints only the files whose extension the linter handles", async () => {
+      declare(root, ["oxlint"]);
+      fakeBin(root, "oxlint", { exit: 1, output: "o" });
+      const script = writeProjectFile(root, "src/a.js", "x");
+      const view = writeProjectFile(root, "src/App.vue", "x");
+      record(editInput(script), { stateDir });
+      record(editInput(view), { stateDir });
+
+      const { reason } = await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.ok(reason.includes(`ARGS: --no-error-on-unmatched-pattern ${script}\n`));
+      assert.ok(!reason.includes("App.vue"));
+    });
+
+    it("runs lint and tsc at the same time", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      const marks = join(stateDir, "marks");
+      mkdirSync(marks, { recursive: true });
+      // Each tool announces itself, then waits (at most 5s) for the other.
+      const rendezvous = (self, other, onSuccess) =>
+        [
+          `touch "${marks}/${self}"`,
+          "i=0",
+          `while [ ! -f "${marks}/${other}" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done`,
+          `if [ -f "${marks}/${other}" ]; then ${onSuccess}; fi`,
+          "exit 0",
+        ].join("\n");
+      fakeShell(root, "tsc", rendezvous("tsc", "eslint", `echo "src/a.ts(3,5): error TS2322: bad"; exit 2`));
+      fakeShell(root, "eslint", rendezvous("eslint", "tsc", `echo "lint is unhappy"; exit 1`));
+
+      const result = await stopAfter(writeProjectFile(root, "src/a.ts", "x"));
+
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.includes("lint is unhappy"));
+      assert.ok(result.reason.includes("TS2322"));
+    });
+
+    it("puts the lint section before the typecheck and test sections", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      declare(root, ["vitest"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeBin(root, "eslint", { exit: 1, output: "lint is unhappy" });
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      fakeBin(root, "vitest", { exit: 1, output: "FAIL  src/a.test.ts > adds" });
+      const env = { ...process.env, CLAUDE_HOOKS_SKIP_TESTS: "" };
+
+      const { reason } = await stopAfter(writeProjectFile(root, "src/a.ts", "x"), { env });
+
+      const order = ["[린트]", "[타입 검사]", "[테스트]"].map((title) => reason.indexOf(title));
+      assert.ok(order.every((index) => index >= 0));
+      assert.deepEqual(order, [...order].sort((a, b) => a - b));
+    });
+
+    it("blocks up to three times, says last check on the third, then does not run lint again", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      const log = join(stateDir, "eslint.log");
+      fakeShell(root, "eslint", `echo run >> "${log}"\necho "lint error"\nexit 1`);
+      fakeBin(root, "tsc", { exit: 0 });
+      const file = writeProjectFile(root, "src/a.ts", "x");
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      const paths = statePaths(input, stateDir);
+      record(editInput(file), { stateDir });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const result = await check(input, { stateDir });
+        assert.equal(result.decision, "block");
+        assert.equal(result.reason.includes("이번이 마지막 확인이다. 고치지 못하면 원인을 보고에 남겨라."), attempt === 2);
+        assert.equal(readFileSync(paths.lintBlocksPath, "utf8"), String(attempt + 1));
+      }
+
+      // Another kind still blocks, and lint is not run again nor counted.
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const result = await check(input, { stateDir });
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.includes("[타입 검사]"));
+      assert.ok(!result.reason.includes("[린트]"));
+      assert.equal(readFileSync(paths.lintBlocksPath, "utf8"), "3");
+      assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 3);
+    });
+
+    it("counts lint blocks apart from typecheck blocks", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeBin(root, "eslint", { exit: 1, output: "lint error" });
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      const paths = statePaths(input, stateDir);
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+      await check(input, { stateDir });
+      fakeBin(root, "eslint", { exit: 0 });
+      await check(input, { stateDir });
+
+      assert.equal(readFileSync(paths.lintBlocksPath, "utf8"), "1");
+      assert.equal(readFileSync(paths.typecheckBlocksPath, "utf8"), "2");
+    });
+
+    it("says in a Handback deny that the errors are to be fixed before the report", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "lint error" });
+      const agent = { agent_id: "agent-abc", agent_type: "worker" };
+      record(editInput(writeProjectFile(root, "src/a.js", "x"), agent), { stateDir });
+
+      const result = await check(
+        { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "SubagentHandback", cwd: root, ...agent },
+        { stateDir },
+      );
+
+      assert.equal(result.hookSpecificOutput.permissionDecision, "deny");
+      const reason = result.hookSpecificOutput.permissionDecisionReason;
+      assert.ok(reason.startsWith("[린트]"));
+      assert.ok(reason.includes("보고 전에 이번 변경으로 생긴 오류는 고친다."));
+    });
+
+    it("sends a lint timeout as a notice once and does not block", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeShell(root, "eslint", "sleep 5");
+      const file = writeProjectFile(root, "src/a.js", "x");
+      const options = { stateDir, timeouts: { lint: 1000 } };
+
+      const result = await stopAfter(file, options);
+
+      assert.deepEqual(result, {
+        hookSpecificOutput: {
+          hookEventName: "Stop",
+          additionalContext: "- eslint가 1초 안에 끝나지 않아 검증하지 못했다.",
+        },
+      });
+    });
+
+    it("keeps the timeout key lint:<tool>:timeout in the notified state of a block", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeShell(root, "eslint", "sleep 5");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+      const result = await check(input, { stateDir, timeouts: { lint: 1000 } });
+
+      assert.ok(result.reason.endsWith("- eslint가 1초 안에 끝나지 않아 검증하지 못했다."));
+      assert.equal(readFileSync(statePaths(input, stateDir).notifiedPath, "utf8"), "lint:eslint:timeout\n");
+    });
+
+    it("does not block on a linter that cannot be spawned and says so", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      chmodSync(writeProjectFile(root, "node_modules/.bin/eslint", "#!/nonexistent/interpreter\n"), 0o755);
+
+      const result = await stopAfter(writeProjectFile(root, "a.js", "x"));
+
+      assert.equal(result.decision, undefined);
+      assert.match(result.hookSpecificOutput.additionalContext, /eslint/);
+      assert.match(result.hookSpecificOutput.additionalContext, /검증하지 못했다/);
+    });
+
+    it("says lint was not run when no time is left", async () => {
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
+      fakeBin(root, "eslint", { exit: 1, output: "lint error" });
+
+      const result = await stopAfter(writeProjectFile(root, "a.js", "x"), { timeouts: { total: 0 } });
+
+      assert.equal(result.hookSpecificOutput.additionalContext, "- 남은 시간이 없어 eslint를 실행하지 못했다.");
+    });
+  });
+
+  describe("format at stop (check-on-stop)", () => {
+    const FORMAT_ARGS = {
+      prettier: "--write --ignore-unknown --no-error-on-unmatched-pattern",
+      biome: "format --write --no-errors-on-unmatched --files-ignore-unknown=true",
+      oxfmt: "--no-error-on-unmatched-pattern",
+    };
+
+    function logPath() {
+      return join(stateDir, "format.log");
+    }
+
+    // Fake formatter: logs its start and end with cwd and arguments, optionally waits, writes `write` into
+    // every file argument (the arguments that are not options and exist), prints `output`, exits with `exit`.
+    function fakeFormatter(name, { exit = 0, write = `formatted-by-${name}`, sleep = 0, output = "" } = {}) {
+      const lines = [
+        `echo "start ${name} CWD: $(pwd -P) ARGS: $*" >> "${logPath()}"`,
+        sleep > 0 ? `sleep ${sleep}` : "",
+        // Biome's lint run (the first argument is `lint`) must leave the files alone.
+        write === null
+          ? ""
+          : `if [ "$1" != lint ]; then for arg in "$@"; do case "$arg" in -*) ;; *) if [ -f "$arg" ]; then printf '%s' "${write}" > "$arg"; fi;; esac; done; fi`,
+        `echo "end ${name} ARGS: $*" >> "${logPath()}"`,
+        output === "" ? "" : `echo "${output}"`,
+        `exit ${exit}`,
+      ];
+      fakeShell(root, name, lines.filter((line) => line !== "").join("\n"));
+    }
+
+    // The format runs of the log: lines of starts and ends, without Biome's lint run.
+    function formatLog() {
+      if (!existsSync(logPath())) {
+        return [];
+      }
+      return readFileSync(logPath(), "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => !line.includes("ARGS: lint"));
+    }
+
+    function startsOf(name) {
+      return formatLog().filter((line) => line.startsWith(`start ${name} `));
+    }
+
+    async function stopAfter(file, options = {}, input = {}) {
+      record(editInput(file), { stateDir });
+      return check(stopInput({ cwd: root, ...input }), { stateDir, ...options });
+    }
+
+    // Prettier is selected only by a declaration in dependencies/devDependencies.
+    const PRETTIER_DECLARATIONS = [
+      ["a prettier devDependency", () => writeProjectFile(root, "package.json", JSON.stringify({ devDependencies: { prettier: "3.0.0" } }))],
+      ["a prettier dependency", () => writeProjectFile(root, "package.json", JSON.stringify({ dependencies: { prettier: "3.0.0" } }))],
+      [
+        "a prettier devDependency and a .prettierrc.toml file",
+        () => {
+          declare(root, ["prettier"]);
+          writeProjectFile(root, ".prettierrc.toml", "semi = false");
+        },
+      ],
+    ];
+    for (const [name, setUp] of PRETTIER_DECLARATIONS) {
+      it(`runs Prettier from the bin project for ${name}, and a format alone sends nothing`, async () => {
+        setUp();
+        fakeFormatter("prettier");
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        const result = await stopAfter(file);
+
+        assert.equal(result, null);
+        assert.deepEqual(startsOf("prettier"), [`start prettier CWD: ${root} ARGS: ${FORMAT_ARGS.prettier} ${file}`]);
+        assert.equal(readFileSync(file, "utf8"), "formatted-by-prettier");
+        assert.equal(existsSync(statePaths(stopInput(), stateDir).filesPath), false);
+      });
+    }
+
+    // Without a declaration these never select Prettier, whatever else exists next to a bin.
+    const PRETTIER_WITHOUT_DECLARATION = [
+      ["a .prettierrc file", () => writeProjectFile(root, ".prettierrc", "{}")],
+      ["a .prettierrc.toml file", () => writeProjectFile(root, ".prettierrc.toml", "semi = false")],
+      ["a prettier.config.mjs file", () => writeProjectFile(root, "prettier.config.mjs", "export default {};")],
+      ["a prettier key in package.json", () => writeProjectFile(root, "package.json", JSON.stringify({ prettier: { semi: false } }))],
+      [
+        "a prettier script and peerDependency in package.json",
+        () =>
+          writeProjectFile(
+            root,
+            "package.json",
+            JSON.stringify({ scripts: { format: "prettier --write ." }, peerDependencies: { prettier: "3.0.0" } }),
+          ),
+      ],
+    ];
+    for (const [name, setUp] of PRETTIER_WITHOUT_DECLARATION) {
+      it(`does not run Prettier for ${name} with a bin but no declaration`, async () => {
+        setUp();
+        fakeFormatter("prettier");
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        assert.equal(await stopAfter(file), null);
+
+        assert.deepEqual(formatLog(), []);
+        assert.equal(readFileSync(file, "utf8"), "x");
+      });
+    }
+
+    it("does not run Prettier for a bin alone", async () => {
+      fakeFormatter("prettier");
+      const file = writeProjectFile(root, "src/a.ts", "x");
+
+      assert.equal(await stopAfter(file), null);
+
+      assert.deepEqual(formatLog(), []);
+      assert.equal(readFileSync(file, "utf8"), "x");
+    });
+
+    it("does not run Prettier when it is declared but has no bin", async () => {
+      declare(root, ["prettier"]);
+      const file = writeProjectFile(root, "src/a.ts", "x");
+
+      assert.equal(await stopAfter(file), null);
+
+      assert.equal(readFileSync(file, "utf8"), "x");
+    });
+
+    it("does not run a formatter whose declaration is for another tool", async () => {
+      declare(root, ["vitest"]);
+      fakeFormatter("prettier");
+      fakeFormatter("biome");
+      fakeFormatter("oxfmt");
+
+      assert.equal(await stopAfter(writeProjectFile(root, "src/a.ts", "x")), null);
+
+      assert.deepEqual(formatLog(), []);
+    });
+
+    it("does not run a formatter declared only above the .git boundary", async () => {
+      const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
+      try {
+        declare(outer, ["prettier"]);
+        const inner = join(outer, "project");
+        mkdirSync(join(inner, ".git"), { recursive: true });
+        fakeShell(inner, "prettier", `echo run >> "${logPath()}"`);
+        const file = writeProjectFile(inner, "src/a.ts", "x");
+
+        assert.equal(await stopAfter(file, {}, { cwd: inner }), null);
+
+        assert.deepEqual(formatLog(), []);
+      } finally {
+        rmSync(outer, { recursive: true, force: true });
+      }
+    });
+
+    it("runs a formatter declared in the root package.json for a file of a subpackage", async () => {
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier");
+      const file = writeProjectFile(root, "packages/app/src/a.ts", "x");
+
+      await stopAfter(file);
+
+      assert.deepEqual(startsOf("prettier"), [`start prettier CWD: ${root} ARGS: ${FORMAT_ARGS.prettier} ${file}`]);
+    });
+
+    it("lets a subpackage declaration decide over the root's: the root's oxfmt is not used", async () => {
+      declare(root, ["oxfmt"]);
+      declare(root, ["prettier"], "packages/app");
+      fakeFormatter("oxfmt");
+      fakeFormatter("prettier");
+      const inSubpackage = writeProjectFile(root, "packages/app/src/a.ts", "x");
+      const inRoot = writeProjectFile(root, "src/b.ts", "x");
+      record(editInput(inRoot), { stateDir });
+
+      await stopAfter(inSubpackage);
+
+      assert.equal(readFileSync(inSubpackage, "utf8"), "formatted-by-prettier");
+      assert.equal(readFileSync(inRoot, "utf8"), "formatted-by-oxfmt");
+    });
+
+    it("does not fall back to the root's formatter when the subpackage declares another one without a bin", async () => {
+      declare(root, ["prettier"]);
+      declare(root, ["@biomejs/biome"], "packages/app");
+      fakeFormatter("prettier");
+      const file = writeProjectFile(root, "packages/app/src/a.ts", "x");
+
+      assert.equal(await stopAfter(file), null);
+
+      assert.deepEqual(formatLog(), []);
+      assert.equal(readFileSync(file, "utf8"), "x");
+    });
+
+    it("runs Prettier from the bin project even when the config is in a subdirectory", async () => {
+      writeProjectFile(root, "pkg/.prettierrc.json", "{}");
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier");
+      const file = writeProjectFile(root, "pkg/src/a.ts", "x");
+
+      await stopAfter(file);
+
+      assert.deepEqual(startsOf("prettier"), [`start prettier CWD: ${root} ARGS: ${FORMAT_ARGS.prettier} ${file}`]);
+    });
+
+    it("runs Prettier on .vue and .svelte files", async () => {
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier");
+      const vue = writeProjectFile(root, "src/App.vue", "x");
+      const svelte = writeProjectFile(root, "src/App.svelte", "x");
+      record(editInput(vue), { stateDir });
+      record(editInput(svelte), { stateDir });
+
+      await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.deepEqual(startsOf("prettier"), [`start prettier CWD: ${root} ARGS: ${FORMAT_ARGS.prettier} ${vue} ${svelte}`]);
+    });
+
+    it("runs Biome from the config directory for .biome.json, and from the bin project without a config", async () => {
+      declare(root, ["@biomejs/biome"]);
+      fakeFormatter("biome");
+      writeProjectFile(root, "pkg/.biome.json", "{}");
+      const configured = writeProjectFile(root, "pkg/a.ts", "x");
+      await stopAfter(configured);
+      assert.deepEqual(startsOf("biome"), [`start biome CWD: ${join(root, "pkg")} ARGS: ${FORMAT_ARGS.biome} ${configured}`]);
+
+      rmSync(logPath());
+      rmSync(join(root, "pkg/.biome.json"));
+      const declared = writeProjectFile(root, "pkg/b.ts", "x");
+      await stopAfter(declared);
+      assert.deepEqual(startsOf("biome"), [`start biome CWD: ${root} ARGS: ${FORMAT_ARGS.biome} ${declared}`]);
+    });
+
+    it("does not run Biome for a config and a bin without a declaration", async () => {
+      writeProjectFile(root, "biome.json", "{}");
+      fakeFormatter("biome");
+      const file = writeProjectFile(root, "a.ts", "x");
+
+      assert.equal(await stopAfter(file), null);
+
+      assert.deepEqual(formatLog(), []);
+      assert.equal(readFileSync(file, "utf8"), "x");
+    });
+
+    it("never uses biome check --write", async () => {
+      declare(root, ["@biomejs/biome"]);
+      writeProjectFile(root, "biome.json", "{}");
+      fakeFormatter("biome");
+
+      await stopAfter(writeProjectFile(root, "a.ts", "x"));
+
+      assert.ok(formatLog().every((line) => !line.includes(" check ")));
+    });
+
+    it("does not run a declared Biome when its config turns the formatter off", async () => {
+      declare(root, ["@biomejs/biome"]);
+      for (const [name, text] of [
+        ["biome.json", '{ "formatter": { "enabled": false } }'],
+        ["biome.jsonc", '{\n // no formatting here\n "formatter": { "enabled": false, },\n}'],
+      ]) {
+        writeProjectFile(root, name, text);
+        fakeFormatter("biome");
+        const file = writeProjectFile(root, "a.ts", "x");
+
+        await stopAfter(file);
+
+        assert.deepEqual(formatLog(), [], name);
+        assert.equal(readFileSync(file, "utf8"), "x");
+        rmSync(join(root, name));
+      }
+    });
+
+    it("runs Biome when the formatter is only configured, not disabled", async () => {
+      declare(root, ["@biomejs/biome"]);
+      writeProjectFile(root, "biome.json", '{ "formatter": { "indentStyle": "space" } }');
+      fakeFormatter("biome");
+
+      await stopAfter(writeProjectFile(root, "a.ts", "x"));
+
+      assert.equal(startsOf("biome").length, 1);
+    });
+
+    for (const [name, setUp] of [
+      ["an oxfmt devDependency", () => declare(root, ["oxfmt"])],
+      ["an oxfmt dependency", () => writeProjectFile(root, "package.json", JSON.stringify({ dependencies: { oxfmt: "0.75.0" } }))],
+      [
+        "an oxfmt devDependency and a .oxfmtrc.json file",
+        () => {
+          declare(root, ["oxfmt"]);
+          writeProjectFile(root, ".oxfmtrc.json", "{}");
+        },
+      ],
+      [
+        "an oxfmt devDependency and an oxfmt.config.ts file",
+        () => {
+          declare(root, ["oxfmt"]);
+          writeProjectFile(root, "oxfmt.config.ts", "export default {};");
+        },
+      ],
+    ]) {
+      it(`runs oxfmt in place from the bin project for ${name}`, async () => {
+        setUp();
+        fakeFormatter("oxfmt");
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        await stopAfter(file);
+
+        assert.deepEqual(startsOf("oxfmt"), [`start oxfmt CWD: ${root} ARGS: ${FORMAT_ARGS.oxfmt} ${file}`]);
+      });
+    }
+
+    for (const [name, setUp] of [
+      ["a .oxfmtrc.json file", () => writeProjectFile(root, ".oxfmtrc.json", "{}")],
+      ["a .oxfmtrc.jsonc file", () => writeProjectFile(root, ".oxfmtrc.jsonc", "{}")],
+      ["an oxfmt.config.ts file", () => writeProjectFile(root, "oxfmt.config.ts", "export default {};")],
+    ]) {
+      it(`does not run oxfmt for ${name} with a bin but no declaration`, async () => {
+        setUp();
+        fakeFormatter("oxfmt");
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        assert.equal(await stopAfter(file), null);
+
+        assert.deepEqual(formatLog(), []);
+        assert.equal(readFileSync(file, "utf8"), "x");
+      });
+    }
+
+    it("gives oxfmt the .vue files but leaves .svelte files to the other formatters", async () => {
+      declare(root, ["oxfmt"]);
+      fakeFormatter("oxfmt");
+      const vue = writeProjectFile(root, "src/App.vue", "x");
+      record(editInput(vue), { stateDir });
+      record(editInput(writeProjectFile(root, "src/App.svelte", "x")), { stateDir });
+
+      await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.deepEqual(startsOf("oxfmt"), [`start oxfmt CWD: ${root} ARGS: ${FORMAT_ARGS.oxfmt} ${vue}`]);
+    });
+
+    it("does not format files that are not scripts", async () => {
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier");
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+      // Only a markdown file is recorded by hand.
+      writeFileSync(statePaths(stopInput(), stateDir).filesPath, `${writeProjectFile(root, "README.md", "x")}\n`);
+
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
+
+      assert.deepEqual(formatLog(), []);
+    });
+
+    describe("one formatter per file, in the order oxfmt, Biome, Prettier", () => {
+      const ALL_DEPENDENCIES = { prettier: "3.0.0", oxfmt: "0.75.0", "@biomejs/biome": "2.0.0" };
+
+      // Replaces the project's declarations with `dependencies` and installs all three formatters.
+      function declareFormatters(dependencies) {
+        writeProjectFile(root, "package.json", JSON.stringify({ devDependencies: dependencies }));
+        for (const name of ["prettier", "oxfmt", "biome"]) {
+          fakeFormatter(name);
+        }
+      }
+
+      it("runs only oxfmt when oxfmt, Biome and Prettier are all detected", async () => {
+        declareFormatters(ALL_DEPENDENCIES);
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        const result = await stopAfter(file);
+
+        assert.equal(result, null);
+        assert.deepEqual(startsOf("oxfmt"), [`start oxfmt CWD: ${root} ARGS: ${FORMAT_ARGS.oxfmt} ${file}`]);
+        assert.deepEqual(startsOf("biome"), []);
+        assert.deepEqual(startsOf("prettier"), []);
+        assert.equal(readFileSync(file, "utf8"), "formatted-by-oxfmt");
+      });
+
+      it("falls back to Biome without oxfmt, and to Prettier with neither", async () => {
+        declareFormatters({ prettier: "3.0.0", "@biomejs/biome": "2.0.0" });
+        const file = writeProjectFile(root, "src/a.ts", "x");
+
+        await stopAfter(file);
+
+        assert.equal(readFileSync(file, "utf8"), "formatted-by-biome");
+        assert.deepEqual(startsOf("prettier"), []);
+
+        declareFormatters({ prettier: "3.0.0" });
+        writeFileSync(file, "x");
+        rmSync(logPath());
+
+        await stopAfter(file);
+
+        assert.equal(readFileSync(file, "utf8"), "formatted-by-prettier");
+        assert.deepEqual(startsOf("biome"), []);
+      });
+
+      it("skips a higher-priority formatter that cannot handle the file or is turned off", async () => {
+        declareFormatters(ALL_DEPENDENCIES);
+        writeProjectFile(root, "biome.json", '{ "formatter": { "enabled": false } }');
+        const vue = writeProjectFile(root, "src/a.vue", "x");
+        const svelte = writeProjectFile(root, "src/b.svelte", "x");
+        record(editInput(vue), { stateDir });
+
+        await stopAfter(svelte);
+
+        // oxfmt takes .vue; .svelte is not oxfmt's, and Biome is turned off, so Prettier gets it.
+        assert.equal(readFileSync(vue, "utf8"), "formatted-by-oxfmt");
+        assert.equal(readFileSync(svelte, "utf8"), "formatted-by-prettier");
+        assert.deepEqual(startsOf("biome"), []);
+      });
+    });
+
+    it("formats before lint, tsc and the tests look at the files", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "eslint.config.js");
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript", "eslint", "vitest"]);
+      fakeFormatter("prettier");
+      const file = writeProjectFile(root, "src/a.ts", "x");
+      const sees = (message, exit) => `if grep -q formatted-by-prettier "${file}"; then echo "${message}"; exit ${exit}; fi\nexit 0`;
+      fakeShell(root, "eslint", sees("eslint saw the formatted file", 1));
+      fakeShell(root, "tsc", sees(`src/a.ts(1,1): error TS2322: tsc saw the formatted file`, 2));
+      fakeShell(root, "vitest", sees("FAIL  src/a.test.ts > vitest saw the formatted file", 1));
+      const env = { ...process.env, CLAUDE_HOOKS_SKIP_TESTS: "" };
+
+      const result = await stopAfter(file, { env });
+
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.includes("eslint saw the formatted file"));
+      assert.ok(result.reason.includes("tsc saw the formatted file"));
+      assert.ok(result.reason.includes("vitest saw the formatted file"));
+    });
+
+    it("lists the changed files first in a block reason and asks to read them again", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const changed = writeProjectFile(root, "src/a.ts", "x");
+      const kept = writeProjectFile(root, "src/kept.ts", "formatted-by-prettier");
+      record(editInput(changed), { stateDir });
+      record(editInput(kept), { stateDir });
+
+      const { reason } = await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.ok(reason.startsWith("[포맷]\n"));
+      assert.ok(reason.includes("편집하기 전에 다시 읽는다."));
+      assert.ok(reason.includes("- src/a.ts\n"));
+      assert.ok(!reason.includes("kept.ts"));
+      assert.ok(reason.indexOf("[포맷]") < reason.indexOf("[타입 검사]"));
+    });
+
+    it("does not mention a formatter that changed nothing", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier", { write: null });
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+
+      const { reason } = await stopAfter(writeProjectFile(root, "src/a.ts", "x"));
+
+      assert.ok(!reason.includes("[포맷]"));
+    });
+
+    it("puts the format lines first in additionalContext when a notice is sent", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier");
+      fakeShell(root, "tsc", "sleep 5");
+
+      const result = await stopAfter(writeProjectFile(root, "src/a.ts", "x"), { timeouts: { tsc: 1000 } });
+
+      const context = result.hookSpecificOutput.additionalContext;
+      assert.ok(context.startsWith("[포맷]\n"));
+      assert.ok(context.endsWith("- tsc가 1초 안에 끝나지 않아 검증하지 못했다."));
+    });
+
+    it("puts the format lines first in a Handback deny", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const agent = { agent_id: "agent-abc", agent_type: "worker" };
+      record(editInput(writeProjectFile(root, "src/a.ts", "x"), agent), { stateDir });
+
+      const result = await check(
+        { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "SubagentHandback", cwd: root, ...agent },
+        { stateDir },
+      );
+
+      const reason = result.hookSpecificOutput.permissionDecisionReason;
+      assert.ok(reason.startsWith("[포맷]\n"));
+      assert.ok(reason.includes("보고 전에 이번 변경으로 생긴 오류는 고친다."));
+    });
+
+    it("tells about a formatter that exits non-zero without blocking, once across blocks", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier", { exit: 2, write: null, output: "SyntaxError: boom" });
+      const file = writeProjectFile(root, "src/a.ts", "x");
+
+      const first = await stopAfter(file);
+      assert.equal(first.decision, undefined);
+      assert.match(first.hookSpecificOutput.additionalContext, /prettier가 결과를 내지 못하고 끝나 포맷하지 못했다: /);
+      assert.match(first.hookSpecificOutput.additionalContext, /SyntaxError: boom/);
+
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      record(editInput(file), { stateDir });
+      const second = await check(input, { stateDir });
+      const third = await check(input, { stateDir });
+
+      assert.ok(second.reason.includes("prettier가"));
+      assert.ok(!third.reason.includes("prettier가"));
+      assert.equal(readFileSync(statePaths(input, stateDir).notifiedPath, "utf8"), "format:prettier:tool\n");
+    });
+
+    it("tells about a formatter timeout without blocking and does not wait for it", async () => {
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier", { sleep: 5 });
+      const file = writeProjectFile(root, "src/a.ts", "x");
+
+      const result = await stopAfter(file, { timeouts: { format: 1000 } });
+
+      assert.deepEqual(result, {
+        hookSpecificOutput: {
+          hookEventName: "Stop",
+          additionalContext: "- prettier가 1초 안에 끝나지 않아 포맷하지 못했다.",
+        },
+      });
+      assert.equal(readFileSync(file, "utf8"), "x");
+    });
+
+    it("tells about a formatter that cannot be spawned", async () => {
+      declare(root, ["prettier"]);
+      chmodSync(writeProjectFile(root, "node_modules/.bin/prettier", "#!/nonexistent/interpreter\n"), 0o755);
+
+      const result = await stopAfter(writeProjectFile(root, "src/a.ts", "x"));
+
+      assert.equal(result.decision, undefined);
+      assert.match(result.hookSpecificOutput.additionalContext, /prettier를 실행하지 못해 포맷하지 못했다/);
+    });
+
+    it("says a formatter was not run when no time is left", async () => {
+      declare(root, ["prettier"]);
+      fakeFormatter("prettier");
+
+      const result = await stopAfter(writeProjectFile(root, "src/a.ts", "x"), { timeouts: { total: 0 } });
+
+      assert.equal(result.hookSpecificOutput.additionalContext, "- 남은 시간이 없어 prettier를 실행하지 못했다.");
+      assert.deepEqual(formatLog(), []);
+    });
+
+    it("keeps the files recorded after a block so the next stop formats and checks them again", async () => {
+      declare(root, ["prettier"]);
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeFormatter("prettier");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      const file = writeProjectFile(root, "src/a.ts", "x");
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+      record(editInput(file), { stateDir });
+
+      await check(input, { stateDir });
+      writeFileSync(file, "edited again");
+      await check(input, { stateDir });
+
+      assert.equal(startsOf("prettier").length, 2);
+      assert.equal(readFileSync(file, "utf8"), "formatted-by-prettier");
+    });
+  });
+
+  describe("check-on-stop", () => {
     const TSC_OUTPUT = [
       "src/a.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.",
       "  Detail line for a.",
@@ -382,14 +1541,15 @@ describe("project hooks with fake tools", () => {
 
     function setup({ tscOutput = TSC_OUTPUT, tscExit = 2 } = {}) {
       writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: tscExit, output: tscOutput });
       const edited = writeProjectFile(root, "src/a.ts", "x");
       writeProjectFile(root, "src/other.ts", "x");
-      lint(editInput(edited), { stateDir });
+      record(editInput(edited), { stateDir });
       return edited;
     }
 
-    it("parses diagnostics and folds continuation lines", () => {
+    it("parses diagnostics and folds continuation lines", async () => {
       const parsed = parseDiagnostics(TSC_OUTPUT, root);
       assert.equal(parsed.length, 2);
       assert.equal(parsed[0].file, join(root, "src", "a.ts"));
@@ -397,10 +1557,10 @@ describe("project hooks with fake tools", () => {
       assert.match(parsed[0].message, /Detail line for a\./);
     });
 
-    it("blocks with only the diagnostics of edited files", () => {
+    it("blocks with only the diagnostics of edited files", async () => {
       setup();
 
-      const result = typecheck(stopInput({ cwd: root }), { stateDir });
+      const result = await check(stopInput({ cwd: root }), { stateDir });
 
       assert.equal(result.decision, "block");
       assert.ok(result.reason.includes("src/a.ts"));
@@ -410,112 +1570,229 @@ describe("project hooks with fake tools", () => {
       assert.ok(existsSync(statePaths(stopInput(), stateDir).filesPath));
     });
 
-    it("uses the nearest tsconfig and resolves diagnostic paths against its directory", () => {
+    it("uses the nearest tsconfig and resolves diagnostic paths against its directory", async () => {
+      declare(root, ["typescript"]);
       writeProjectFile(root, "packages/app/tsconfig.json", "{}");
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(2,2): error TS2304: nested" });
       const file = writeProjectFile(root, "packages/app/src/a.ts", "x");
-      lint(editInput(file), { stateDir });
+      record(editInput(file), { stateDir });
 
-      const result = typecheck(stopInput({ cwd: root }), { stateDir });
+      const result = await check(stopInput({ cwd: root }), { stateDir });
 
       assert.equal(result.decision, "block");
       assert.ok(result.reason.includes("packages/app/src/a.ts"));
     });
 
-    it("passes and clears state when edited files have no diagnostics", () => {
+    it("passes and clears state when edited files have no diagnostics", async () => {
       setup({ tscOutput: "src/other.ts(1,1): error TS1005: ';' expected." });
 
-      assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }), null);
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
       assert.equal(existsSync(statePaths(stopInput(), stateDir).filesPath), false);
     });
 
-    it("passes when tsc fails without parseable diagnostics", () => {
+    it("does not block when tsc fails without parseable diagnostics, and says so once", async () => {
       setup({ tscOutput: "error TS5083: Cannot read file tsconfig.json." });
-      assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }), null);
+
+      const result = await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.equal(result.decision, undefined);
+      assert.equal(result.hookSpecificOutput.hookEventName, "Stop");
+      assert.ok(result.hookSpecificOutput.additionalContext.includes("TS5083"));
+      assert.ok(result.hookSpecificOutput.additionalContext.includes("검증하지 못했다"));
+      assert.ok(!result.hookSpecificOutput.additionalContext.includes("보고에 남겨라"));
     });
 
-    it("passes when nothing was edited", () => {
-      assert.equal(typecheck(stopInput(), { stateDir }), null);
+    it("passes when nothing was edited", async () => {
+      assert.equal(await check(stopInput(), { stateDir }), null);
     });
 
-    it("passes when the project has no tsc", () => {
+    it("passes when typescript is declared but the project has no tsc", async () => {
       writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
       const file = writeProjectFile(root, "src/a.ts", "x");
-      lint(editInput(file), { stateDir });
-      assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }), null);
+      record(editInput(file), { stateDir });
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
     });
 
-    it("passes when there is no tsconfig", () => {
+    it("passes without running tsc when typescript is not declared, even with a tsconfig and a tsc bin", async () => {
+      const log = join(stateDir, "tsc.log");
+      writeProjectFile(root, "tsconfig.json", "{}");
+      fakeShell(root, "tsc", `echo run >> "${log}"\necho "src/a.ts(3,5): error TS2322: bad"\nexit 2`);
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
+      assert.equal(existsSync(log), false);
+    });
+
+    it("passes when only another package is declared, or typescript only in scripts or peerDependencies", async () => {
+      writeProjectFile(root, "tsconfig.json", "{}");
+      writeProjectFile(
+        root,
+        "package.json",
+        JSON.stringify({
+          devDependencies: { vitest: "1.0.0" },
+          scripts: { typecheck: "tsc --noEmit" },
+          peerDependencies: { typescript: "5.0.0" },
+        }),
+      );
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
+    });
+
+    it("runs tsc when typescript is declared in dependencies", async () => {
+      writeProjectFile(root, "tsconfig.json", "{}");
+      writeProjectFile(root, "package.json", JSON.stringify({ dependencies: { typescript: "5.0.0" } }));
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+      record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+      assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
+    });
+
+    it("runs tsc for a subpackage tsconfig when only the root package.json declares typescript", async () => {
+      declare(root, ["typescript"]);
+      writeProjectFile(root, "packages/app/tsconfig.json", "{}");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(2,2): error TS2304: nested" });
+      record(editInput(writeProjectFile(root, "packages/app/src/a.ts", "x")), { stateDir });
+
+      const result = await check(stopInput({ cwd: root }), { stateDir });
+
+      assert.equal(result.decision, "block");
+      assert.ok(result.reason.includes("packages/app/src/a.ts"));
+    });
+
+    it("uses the root's typescript declaration when the subpackage's package.json declares other packages only", async () => {
+      declare(root, ["typescript"]);
+      declare(root, ["vitest"], "packages/app");
+      writeProjectFile(root, "packages/app/tsconfig.json", "{}");
+      fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(2,2): error TS2304: nested" });
+      record(editInput(writeProjectFile(root, "packages/app/src/a.ts", "x")), { stateDir });
+
+      assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
+    });
+
+    it("does not use a typescript declaration above the .git boundary", async () => {
+      const outer = realpathSync(mkdtempSync(join(tmpdir(), "hooks-outer-")));
+      try {
+        declare(outer, ["typescript"]);
+        const inner = join(outer, "project");
+        mkdirSync(join(inner, ".git"), { recursive: true });
+        writeProjectFile(inner, "tsconfig.json", "{}");
+        fakeBin(inner, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+        record(editInput(writeProjectFile(inner, "src/a.ts", "x")), { stateDir });
+
+        assert.equal(await check(stopInput({ cwd: inner }), { stateDir }), null);
+      } finally {
+        rmSync(outer, { recursive: true, force: true });
+      }
+    });
+
+    it("passes when there is no tsconfig", async () => {
+      declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(1,1): error TS1005: x" });
       const file = writeProjectFile(root, "src/a.ts", "x");
-      lint(editInput(file), { stateDir });
-      assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }), null);
+      record(editInput(file), { stateDir });
+      assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
     });
 
-    it("keeps state per agent: a subagent stop ignores main's files", () => {
+    it("keeps state per agent: a subagent stop ignores main's files", async () => {
       setup();
-      assert.equal(typecheck(stopInput({ hook_event_name: "SubagentStop", agent_id: "agent-zzz" }), { stateDir }), null);
-      assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }).decision, "block");
+      assert.equal(await check(stopInput({ hook_event_name: "SubagentStop", agent_id: "agent-zzz" }), { stateDir }), null);
+      assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
     });
 
-    it("matches subagent edits and stops through the normalized agent id", () => {
+    it("matches subagent edits and stops through the normalized agent id", async () => {
       writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
       const file = writeProjectFile(root, "src/a.ts", "x");
-      lint(editInput(file, { agent_id: "agent-abc" }), { stateDir });
+      record(editInput(file, { agent_id: "agent-abc" }), { stateDir });
 
-      const result = typecheck(stopInput({ hook_event_name: "SubagentStop", agent_id: "abc", cwd: root }), { stateDir });
+      const result = await check(stopInput({ hook_event_name: "SubagentStop", agent_id: "abc", cwd: root }), { stateDir });
       assert.equal(result.decision, "block");
     });
 
-    it("gives up after three blocks and clears state", () => {
+    it("gives up after three blocks and clears state", async () => {
       setup();
       const input = stopInput({ stop_hook_active: true, cwd: root });
 
       // Different diagnostics each time, so only the block limit can end it.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         fakeBin(root, "tsc", { exit: 2, output: `src/a.ts(${attempt + 1},1): error TS2322: attempt ${attempt}` });
-        assert.equal(typecheck(input, { stateDir }).decision, "block");
+        const result = await check(input, { stateDir });
+        assert.equal(result.decision, "block");
+        assert.equal(result.reason.includes("이번이 마지막 확인이다. 고치지 못하면 원인을 보고에 남겨라."), attempt === 2);
+        assert.equal(readFileSync(statePaths(input, stateDir).typecheckBlocksPath, "utf8"), String(attempt + 1));
       }
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(9,1): error TS2322: attempt 3" });
-      assert.equal(typecheck(input, { stateDir }), null);
+      assert.equal(await check(input, { stateDir }), null);
       assert.equal(existsSync(statePaths(input, stateDir).filesPath), false);
-      assert.equal(existsSync(statePaths(input, stateDir).blocksPath), false);
-      assert.equal(existsSync(statePaths(input, stateDir).lastPath), false);
+      assert.equal(existsSync(statePaths(input, stateDir).typecheckBlocksPath), false);
     });
 
-    it("tells Claude to leave pre-existing errors out of scope", () => {
+    it("tells Claude to leave pre-existing errors out of scope", async () => {
       setup();
 
-      const { reason } = typecheck(stopInput({ cwd: root }), { stateDir });
+      const { reason } = await check(stopInput({ cwd: root }), { stateDir });
 
       assert.ok(reason.includes("이번 변경으로 생긴 오류는 고친다."));
       assert.ok(reason.includes("원래 있던 오류는 작업 범위 밖이면 고치지 말고 보고에 남긴다."));
     });
 
-    it("passes and clears state when the same diagnostics repeat after a block", () => {
+    it("keeps blocking on the same diagnostics up to three times, then passes and clears state", async () => {
       setup();
       const input = stopInput({ stop_hook_active: true, cwd: root });
       const paths = statePaths(input, stateDir);
 
-      assert.equal(typecheck(input, { stateDir }).decision, "block");
-      assert.ok(existsSync(paths.lastPath));
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        assert.equal((await check(input, { stateDir })).decision, "block");
+        assert.equal(readFileSync(paths.typecheckBlocksPath, "utf8"), String(attempt));
+      }
 
-      assert.equal(typecheck(input, { stateDir }), null);
+      assert.equal(await check(input, { stateDir }), null);
       assert.equal(existsSync(paths.filesPath), false);
-      assert.equal(existsSync(paths.blocksPath), false);
-      assert.equal(existsSync(paths.lastPath), false);
+      assert.equal(existsSync(paths.typecheckBlocksPath), false);
+      assert.equal(existsSync(paths.lintBlocksPath), false);
+      assert.equal(existsSync(paths.testBlocksPath), false);
+      assert.equal(existsSync(paths.notifiedPath), false);
     });
 
-    it("blocks again when the diagnostics change between stops", () => {
+    it("tells Claude on the third block that this is the last check", async () => {
       setup();
       const input = stopInput({ stop_hook_active: true, cwd: root });
 
-      assert.equal(typecheck(input, { stateDir }).decision, "block");
+      const first = await check(input, { stateDir });
+      const second = await check(input, { stateDir });
+      const third = await check(input, { stateDir });
+
+      assert.ok(!first.reason.includes("이번이 마지막 확인이다."));
+      assert.ok(!second.reason.includes("이번이 마지막 확인이다."));
+      assert.ok(third.reason.includes("이번이 마지막 확인이다. 고치지 못하면 원인을 보고에 남겨라."));
+    });
+
+    it("deletes state files of the earlier format when it clears state", async () => {
+      setup();
+      const input = stopInput({ cwd: root });
+      const paths = statePaths(input, stateDir);
+      writeFileSync(paths.legacyBlocksPath, "2");
+      writeFileSync(paths.legacyLastPath, "abc");
+      fakeBin(root, "tsc", { exit: 0 });
+
+      assert.equal(await check(input, { stateDir }), null);
+      assert.equal(existsSync(paths.legacyBlocksPath), false);
+      assert.equal(existsSync(paths.legacyLastPath), false);
+    });
+
+    it("blocks again when the diagnostics change between stops", async () => {
+      setup();
+      const input = stopInput({ stop_hook_active: true, cwd: root });
+
+      assert.equal((await check(input, { stateDir })).decision, "block");
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: a different message" });
-      assert.equal(typecheck(input, { stateDir }).decision, "block");
+      assert.equal((await check(input, { stateDir })).decision, "block");
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(4,5): error TS2322: a different message" });
-      assert.equal(typecheck(input, { stateDir }).decision, "block");
+      assert.equal((await check(input, { stateDir })).decision, "block");
     });
 
     describe("before the final report (PreToolUse on SubagentHandback)", () => {
@@ -533,14 +1810,15 @@ describe("project hooks with fake tools", () => {
 
       function setupSubagent() {
         writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
         fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
-        lint(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
+        record(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
       }
 
-      it("denies with the PreToolUse output format and a before-report reason", () => {
+      it("denies with the PreToolUse output format and a before-report reason", async () => {
         setupSubagent();
 
-        const result = typecheck(handbackInput(), { stateDir });
+        const result = await check(handbackInput(), { stateDir });
 
         assert.deepEqual(Object.keys(result), ["hookSpecificOutput"]);
         assert.equal(result.hookSpecificOutput.hookEventName, "PreToolUse");
@@ -551,66 +1829,472 @@ describe("project hooks with fake tools", () => {
         assert.ok(reason.includes("원래 있던 오류는 작업 범위 밖이면 고치지 말고 보고에 남긴다."));
       });
 
-      it("keeps the Stop and SubagentStop output as decision block", () => {
+      it("keeps the Stop and SubagentStop output as decision block", async () => {
         setupSubagent();
 
-        const result = typecheck(subagentStop(), { stateDir });
+        const result = await check(subagentStop(), { stateDir });
 
         assert.equal(result.decision, "block");
         assert.equal(result.hookSpecificOutput, undefined);
       });
 
-      it("does nothing for other tools", () => {
+      it("does nothing for other tools", async () => {
         setupSubagent();
-        assert.equal(typecheck(handbackInput({ tool_name: "Bash" }), { stateDir }), null);
-        assert.equal(typecheck(handbackInput({ tool_name: "Read" }), { stateDir }), null);
+        assert.equal(await check(handbackInput({ tool_name: "Bash" }), { stateDir }), null);
+        assert.equal(await check(handbackInput({ tool_name: "Read" }), { stateDir }), null);
         // and does not consume the block count
-        assert.equal(existsSync(statePaths(handbackInput(), stateDir).blocksPath), false);
+        assert.equal(existsSync(statePaths(handbackInput(), stateDir).typecheckBlocksPath), false);
       });
 
-      it("passes the report and the later SubagentStop when there are no diagnostics", () => {
+      it("passes the report and the later SubagentStop when there are no diagnostics", async () => {
         writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
         fakeBin(root, "tsc", { exit: 0 });
-        lint(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
+        record(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
 
-        assert.equal(typecheck(handbackInput(), { stateDir }), null);
+        assert.equal(await check(handbackInput(), { stateDir }), null);
         assert.equal(existsSync(statePaths(handbackInput(), stateDir).filesPath), false);
-        assert.equal(typecheck(subagentStop(), { stateDir }), null);
+        assert.equal(await check(subagentStop(), { stateDir }), null);
       });
 
-      it("allows the report after the errors are fixed, and the SubagentStop after it", () => {
+      it("allows the report after the errors are fixed, and the SubagentStop after it", async () => {
         setupSubagent();
-        assert.equal(typecheck(handbackInput(), { stateDir }).hookSpecificOutput.permissionDecision, "deny");
+        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
 
         fakeBin(root, "tsc", { exit: 0 });
-        assert.equal(typecheck(handbackInput(), { stateDir }), null);
-        assert.equal(typecheck(subagentStop(), { stateDir }), null);
+        assert.equal(await check(handbackInput(), { stateDir }), null);
+        assert.equal(await check(subagentStop(), { stateDir }), null);
       });
 
-      it("allows the report when the same diagnostics repeat, and the SubagentStop after it", () => {
+      it("denies the report again when the same diagnostics repeat", async () => {
         setupSubagent();
 
-        assert.equal(typecheck(handbackInput(), { stateDir }).hookSpecificOutput.permissionDecision, "deny");
-        assert.equal(typecheck(handbackInput(), { stateDir }), null);
-        assert.equal(typecheck(subagentStop(), { stateDir }), null);
+        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
+        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
       });
 
-      it("shares the three-block limit with Stop and SubagentStop", () => {
+      it("shares the three-block limit with Stop and SubagentStop", async () => {
         setupSubagent();
         for (let attempt = 0; attempt < 3; attempt += 1) {
           fakeBin(root, "tsc", { exit: 2, output: `src/a.ts(${attempt + 1},1): error TS2322: attempt ${attempt}` });
-          assert.ok(typecheck(attempt % 2 === 0 ? handbackInput() : subagentStop(), { stateDir }) !== null);
+          assert.ok(await check(attempt % 2 === 0 ? handbackInput() : subagentStop(), { stateDir }) !== null);
         }
         fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(9,1): error TS2322: attempt 3" });
-        assert.equal(typecheck(handbackInput(), { stateDir }), null);
+        assert.equal(await check(handbackInput(), { stateDir }), null);
+      });
+
+      it("denies a Handback with a text-only notice once, then lets the report through", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        chmodSync(writeProjectFile(root, "node_modules/.bin/tsc", "#!/bin/sh\nsleep 5\n"), 0o755);
+        record(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
+        const options = { stateDir, timeouts: { tsc: 1000 } };
+
+        const first = await check(handbackInput(), options);
+
+        assert.equal(first.hookSpecificOutput.hookEventName, "PreToolUse");
+        assert.equal(first.hookSpecificOutput.permissionDecision, "deny");
+        assert.equal(
+          first.hookSpecificOutput.permissionDecisionReason,
+          "다음 항목을 검증하지 못했다. 보고에 남기고 SubagentHandback을 다시 호출하라\n- tsc가 1초 안에 끝나지 않아 검증하지 못했다.",
+        );
+        assert.equal(await check(handbackInput(), options), null);
+        assert.equal(await check(subagentStop(), options), null);
+      });
+    });
+
+    describe("with related tests, notices and parallel runs", () => {
+      const TEST_FAIL = "FAIL  src/a.test.ts > adds";
+
+      // Script run by `sh`; `body` is its text after the shebang.
+      function fakeScript(name, body) {
+        chmodSync(writeProjectFile(root, `node_modules/.bin/${name}`, `#!/bin/sh\n${body}\n`), 0o755);
+      }
+
+      function fakeVitest({ exit = 1, output = TEST_FAIL } = {}) {
+        fakeBin(root, "vitest", { exit, output });
+      }
+
+      // A TS project whose edited file src/a.ts has a type error, with vitest configured.
+      function setupBoth({ tscExit = 2, edited = "src/a.ts", agent = {} } = {}) {
+        declare(root, ["vitest"]);
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        fakeBin(root, "tsc", { exit: tscExit, output: "src/a.ts(3,5): error TS2322: bad" });
+        fakeVitest();
+        const file = writeProjectFile(root, edited, "x");
+        record(editInput(file, agent), { stateDir });
+        return file;
+      }
+
+      const envWith = (extra = {}) => {
+        const { CLAUDE_HOOKS_SKIP_TESTS: _skip, ...rest } = process.env;
+        return { ...rest, ...extra };
+      };
+
+      it("reports type errors and test failures in one reason with a section each", async () => {
+        setupBoth();
+        const input = stopInput({ cwd: root });
+        const paths = statePaths(input, stateDir);
+
+        const result = await check(input, { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("[타입 검사]"));
+        assert.ok(result.reason.includes("TS2322"));
+        assert.ok(result.reason.includes("[테스트]"));
+        assert.ok(result.reason.includes(TEST_FAIL));
+        assert.ok(result.reason.includes("테스트를 통과시키려고 기대값을 바꾸지 않는다. 테스트가 틀렸다고 판단하면 근거를 보고에 남긴다."));
+        assert.ok(result.reason.indexOf("[타입 검사]") < result.reason.indexOf("[테스트]"));
+        assert.equal(readFileSync(paths.typecheckBlocksPath, "utf8"), "1");
+        assert.equal(readFileSync(paths.testBlocksPath, "utf8"), "1");
+      });
+
+      it("blocks on test failures alone", async () => {
+        setupBoth({ tscExit: 0 });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("[테스트]"));
+        assert.ok(!result.reason.includes("[타입 검사]"));
+      });
+
+      it("runs typecheck and tests at the same time", async () => {
+        declare(root, ["vitest"]);
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        const marks = join(stateDir, "marks");
+        mkdirSync(marks, { recursive: true });
+        // Each tool announces itself, then waits (at most 5s) for the other. Run one after the other,
+        // the first one would time out waiting and report nothing.
+        const rendezvous = (self, other, onSuccess) =>
+          [
+            `touch "${marks}/${self}"`,
+            "i=0",
+            `while [ ! -f "${marks}/${other}" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done`,
+            `if [ -f "${marks}/${other}" ]; then ${onSuccess}; fi`,
+            "exit 0",
+          ].join("\n");
+        fakeScript("tsc", rendezvous("tsc", "vitest", `echo "src/a.ts(3,5): error TS2322: bad"; exit 2`));
+        fakeScript("vitest", rendezvous("vitest", "tsc", `echo "${TEST_FAIL}"; exit 1`));
+        record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("TS2322"));
+        assert.ok(result.reason.includes(TEST_FAIL));
+      });
+
+      it("counts blocks per kind: tests still block after typecheck reached its limit", async () => {
+        setupBoth({ tscExit: 2 });
+        fakeVitest({ exit: 0, output: "ok" });
+        const input = stopInput({ stop_hook_active: true, cwd: root });
+        const paths = statePaths(input, stateDir);
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          assert.equal((await check(input, { stateDir, env: envWith() })).decision, "block");
+        }
+        assert.equal(readFileSync(paths.typecheckBlocksPath, "utf8"), "3");
+        assert.equal(existsSync(paths.testBlocksPath), false);
+
+        fakeVitest();
+        const result = await check(input, { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("[테스트]"));
+        assert.ok(!result.reason.includes("[타입 검사]"));
+        assert.equal(readFileSync(paths.typecheckBlocksPath, "utf8"), "3");
+        assert.equal(readFileSync(paths.testBlocksPath, "utf8"), "1");
+      });
+
+      it("does not run a kind that reached its limit", async () => {
+        setupBoth({ tscExit: 0 });
+        const log = join(stateDir, "vitest.log");
+        fakeScript("vitest", `echo run >> "${log}"\necho "${TEST_FAIL}"\nexit 1`);
+        const input = stopInput({ stop_hook_active: true, cwd: root });
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          assert.equal((await check(input, { stateDir, env: envWith() })).decision, "block");
+        }
+        assert.equal(await check(input, { stateDir, env: envWith() }), null);
+
+        assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 3);
+      });
+
+      it("sends a timeout as additionalContext with the SubagentStop event name, once", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        fakeScript("tsc", "sleep 5");
+        const agent = { agent_id: "agent-abc", agent_type: "worker" };
+        record(editInput(writeProjectFile(root, "src/a.ts", "x"), agent), { stateDir });
+        const input = stopInput({ hook_event_name: "SubagentStop", ...agent, cwd: root });
+
+        const result = await check(input, { stateDir, timeouts: { tsc: 1000 } });
+
+        assert.deepEqual(result, {
+          hookSpecificOutput: {
+            hookEventName: "SubagentStop",
+            additionalContext: "- tsc가 1초 안에 끝나지 않아 검증하지 못했다.",
+          },
+        });
+        assert.equal(await check(input, { stateDir, timeouts: { tsc: 1000 } }), null);
+      });
+
+      it("uses the Stop event name for Stop notices", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        fakeScript("tsc", "sleep 5");
+        record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, timeouts: { tsc: 500 } });
+
+        assert.equal(result.hookSpecificOutput.hookEventName, "Stop");
+        assert.equal(result.decision, undefined);
+      });
+
+      it("does not block on a spawn failure and reports it", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        // Executable bit set but the interpreter does not exist: spawn fails.
+        chmodSync(writeProjectFile(root, "node_modules/.bin/tsc", "#!/nonexistent/interpreter\n"), 0o755);
+        record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir });
+
+        assert.equal(result.decision, undefined);
+        assert.match(result.hookSpecificOutput.additionalContext, /tsc/);
+        assert.match(result.hookSpecificOutput.additionalContext, /검증하지 못했다/);
+        assert.ok(!result.hookSpecificOutput.additionalContext.includes("보고에 남겨라"));
+      });
+
+      it("appends a notice to a block and does not repeat it on the next block", async () => {
+        setupBoth({ tscExit: 2 });
+        fakeScript("vitest", "sleep 5");
+        const input = stopInput({ stop_hook_active: true, cwd: root });
+        const options = { stateDir, env: envWith(), timeouts: { test: 1000 } };
+
+        const first = await check(input, options);
+        const second = await check(input, options);
+
+        assert.equal(first.decision, "block");
+        assert.ok(first.reason.includes("[타입 검사]"));
+        assert.ok(first.reason.endsWith("- vitest가 1초 안에 끝나지 않아 검증하지 못했다."));
+        assert.equal(second.decision, "block");
+        assert.ok(!second.reason.includes("vitest가"));
+        assert.equal(readFileSync(statePaths(input, stateDir).notifiedPath, "utf8"), "test:vitest:timeout\n");
+      });
+
+      it("skips only the tests when CLAUDE_HOOKS_SKIP_TESTS is 1", async () => {
+        setupBoth({ tscExit: 0 });
+        const skip = envWith({ CLAUDE_HOOKS_SKIP_TESTS: "1" });
+        assert.equal(await check(stopInput({ cwd: root }), { stateDir, env: skip }), null);
+
+        record(editInput(join(root, "src/a.ts")), { stateDir });
+        fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: skip });
+
+        assert.ok(result.reason.includes("[타입 검사]"));
+        assert.ok(!result.reason.includes("[테스트]"));
+      });
+
+      it("typechecks edited JS files; no diagnostics for them means no block", async () => {
+        declare(root, ["vitest"]);
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        const log = join(stateDir, "tsc.log");
+        fakeScript("tsc", `echo run >> "${log}"\nexit 0`);
+        fakeVitest();
+        record(editInput(writeProjectFile(root, "src/a.js", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.ok(result.reason.includes("[테스트]"));
+        assert.ok(!result.reason.includes("[타입 검사]"));
+        assert.equal(existsSync(log), true);
+      });
+
+      it("blocks a .vue edit on vitest failures and does not run tsc for it", async () => {
+        declare(root, ["vitest"]);
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        const log = join(stateDir, "tsc.log");
+        fakeScript("tsc", `echo run >> "${log}"\nexit 0`);
+        fakeVitest();
+        record(editInput(writeProjectFile(root, "src/App.vue", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("[테스트]"));
+        assert.ok(result.reason.includes("ARGS: related --run --passWithNoTests src/App.vue"));
+        assert.ok(!result.reason.includes("[타입 검사]"));
+        assert.equal(existsSync(log), false);
+      });
+
+      it("blocks on a diagnostic in an edited JS file", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        fakeBin(root, "tsc", { exit: 2, output: "src/a.js(3,5): error TS2322: bad js" });
+        record(editInput(writeProjectFile(root, "src/a.js", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.equal(result.decision, "block");
+        assert.ok(result.reason.includes("[타입 검사]"));
+        assert.ok(result.reason.includes("src/a.js"));
+        assert.ok(result.reason.includes("TS2322: bad js"));
+      });
+
+      const NO_BLOCK_FOR_JS = [
+        ["diagnostics only in another file", 2, "src/other.js(1,1): error TS2322: elsewhere"],
+        ["tsc exits with 0", 0, ""],
+        ["only TS18003 is reported", 1, "error TS18003: No inputs were found in config file '/p/tsconfig.json'."],
+        ["TS18003 is reported with a location", 1, "tsconfig.json(1,1): error TS18003: No inputs were found."],
+      ];
+      for (const [name, exit, output] of NO_BLOCK_FOR_JS) {
+        it(`passes an edited JS file and clears state when ${name}`, async () => {
+          writeProjectFile(root, "tsconfig.json", "{}");
+          declare(root, ["typescript"]);
+          fakeBin(root, "tsc", { exit, output });
+          writeProjectFile(root, "src/other.js", "x");
+          record(editInput(writeProjectFile(root, "src/a.js", "x")), { stateDir });
+
+          assert.equal(await check(stopInput({ cwd: root }), { stateDir, env: envWith() }), null);
+          assert.equal(existsSync(statePaths(stopInput(), stateDir).filesPath), false);
+        });
+      }
+
+      it("still reports a TS18003 mixed with another tool error as a notice", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        fakeBin(root, "tsc", { exit: 1, output: "error TS18003: No inputs.\nerror TS5083: Cannot read file." });
+        record(editInput(writeProjectFile(root, "src/a.js", "x")), { stateDir });
+
+        const result = await check(stopInput({ cwd: root }), { stateDir, env: envWith() });
+
+        assert.match(result.hookSpecificOutput.additionalContext, /TS5083/);
+      });
+
+      it("finds the nearest tsconfig of an edited nested JS file", async () => {
+        writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
+        writeProjectFile(root, "packages/app/tsconfig.json", "{}");
+        const log = join(stateDir, "tsc-args.log");
+        fakeScript("tsc", `echo "$*" >> "${log}"\nexit 0`);
+        record(editInput(writeProjectFile(root, "packages/app/src/a.js", "x")), { stateDir });
+
+        assert.equal(await check(stopInput({ cwd: root }), { stateDir, env: envWith() }), null);
+
+        const calls = readFileSync(log, "utf8").trim().split("\n");
+        assert.equal(calls.length, 1);
+        assert.ok(calls[0].includes(`-p ${join(root, "packages/app/tsconfig.json")}`));
+      });
+
+      describe("notices as facts", () => {
+        it("says tsc was not run when no time is left, without seconds", async () => {
+          writeProjectFile(root, "tsconfig.json", "{}");
+          declare(root, ["typescript"]);
+          fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
+          record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+          const result = await check(stopInput({ cwd: root }), {
+            stateDir,
+            env: envWith(),
+            timeouts: { total: 0 },
+          });
+
+          assert.deepEqual(result, {
+            hookSpecificOutput: {
+              hookEventName: "Stop",
+              additionalContext: "- 남은 시간이 없어 tsc를 실행하지 못했다.",
+            },
+          });
+        });
+
+        it("says vitest was not run when no time is left, without seconds", async () => {
+          setupBoth();
+
+          const result = await check(stopInput({ cwd: root }), {
+            stateDir,
+            env: envWith(),
+            timeouts: { total: 0 },
+          });
+
+          const context = result.hookSpecificOutput.additionalContext;
+          assert.ok(context.includes("- 남은 시간이 없어 tsc를 실행하지 못했다."));
+          assert.ok(context.includes("- 남은 시간이 없어 vitest를 실행하지 못했다."));
+          assert.ok(!context.includes("0초"));
+          assert.ok(!context.includes("280초"));
+          assert.ok(!context.includes("보고에 남겨라"));
+        });
+
+        it("rounds a timeout to whole seconds for tsc and for tests", async () => {
+          declare(root, ["vitest"]);
+          writeProjectFile(root, "tsconfig.json", "{}");
+          declare(root, ["typescript"]);
+          fakeScript("tsc", "sleep 5");
+          fakeScript("vitest", "sleep 5");
+          record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+          const result = await check(stopInput({ cwd: root }), {
+            stateDir,
+            env: envWith(),
+            timeouts: { tsc: 1400, test: 1600 },
+          });
+
+          assert.equal(
+            result.hookSpecificOutput.additionalContext,
+            "- tsc가 1초 안에 끝나지 않아 검증하지 못했다.\n- vitest가 2초 안에 끝나지 않아 검증하지 못했다.",
+          );
+        });
+
+        it("introduces the not-verified section of a block with a statement", async () => {
+          setupBoth({ tscExit: 2 });
+          fakeScript("vitest", "sleep 5");
+
+          const result = await check(stopInput({ stop_hook_active: true, cwd: root }), {
+            stateDir,
+            env: envWith(),
+            timeouts: { test: 1000 },
+          });
+
+          assert.ok(
+            result.reason.endsWith(
+              "[검증하지 못한 항목]\n다음 항목은 검증하지 못했다. 보고에 남긴다.\n- vitest가 1초 안에 끝나지 않아 검증하지 못했다.",
+            ),
+          );
+        });
+      });
+
+      it("does not run vitest for a bin and a test script without a declaration", async () => {
+        writeProjectFile(root, "package.json", JSON.stringify({ scripts: { test: "vitest" } }));
+        fakeVitest();
+        record(editInput(writeProjectFile(root, "src/a.ts", "x")), { stateDir });
+
+        assert.equal(await check(stopInput({ cwd: root }), { stateDir, env: envWith() }), null);
+      });
+
+      it("does not run tests for files that are not scripts", async () => {
+        declare(root, ["vitest"]);
+        fakeVitest();
+        const file = writeProjectFile(root, "src/a.ts", "x");
+        record(editInput(file), { stateDir });
+        // Only a markdown file is recorded by hand.
+        const paths = statePaths(stopInput(), stateDir);
+        writeFileSync(paths.filesPath, `${writeProjectFile(root, "README.md", "x")}\n`);
+
+        assert.equal(await check(stopInput({ cwd: root }), { stateDir, env: envWith() }), null);
       });
     });
 
     describe("solution-style tsconfig", () => {
       const solution = (references) => JSON.stringify({ files: [], references });
 
-      it("also checks referenced projects, given as directories or files", () => {
+      it("also checks referenced projects, given as directories or files", async () => {
         writeProjectFile(root, "tsconfig.json", solution([{ path: "./app" }, { path: "./tsconfig.node.json" }]));
+        declare(root, ["typescript"]);
         writeProjectFile(root, "app/tsconfig.json", "{}");
         writeProjectFile(root, "tsconfig.node.json", "{}");
         // Reports an error only when run for the app project.
@@ -618,26 +2302,27 @@ describe("project hooks with fake tools", () => {
         const bin = writeProjectFile(root, "node_modules/.bin/tsc", script);
         chmodSync(bin, 0o755);
         const file = writeProjectFile(root, "app/src/a.ts", "x");
-        lint(editInput(file), { stateDir });
+        record(editInput(file), { stateDir });
 
-        const result = typecheck(stopInput({ cwd: root }), { stateDir });
+        const result = await check(stopInput({ cwd: root }), { stateDir });
 
         assert.equal(result.decision, "block");
         assert.ok(result.reason.includes("TS2304: in app"));
       });
 
-      it("runs tsc for the root and every referenced project, once each", () => {
+      it("runs tsc for the root and every referenced project, once each", async () => {
         writeProjectFile(root, "tsconfig.json", solution([{ path: "./a" }, { path: "./b/tsconfig.json" }]));
+        declare(root, ["typescript"]);
         writeProjectFile(root, "a/tsconfig.json", solution([{ path: "../b" }]));
         writeProjectFile(root, "b/tsconfig.json", "{}");
         const log = join(stateDir, "tsc.log");
         const script = `#!/bin/sh\necho "$*" >> "${log}"\nexit 0\n`;
         chmodSync(writeProjectFile(root, "node_modules/.bin/tsc", script), 0o755);
-        lint(editInput(writeProjectFile(root, "a/src/x.ts", "x")), { stateDir });
+        record(editInput(writeProjectFile(root, "a/src/x.ts", "x")), { stateDir });
         writeProjectFile(root, "src/y.ts", "x");
-        lint(editInput(join(root, "src/y.ts")), { stateDir });
+        record(editInput(join(root, "src/y.ts")), { stateDir });
 
-        typecheck(stopInput({ cwd: root }), { stateDir });
+        await check(stopInput({ cwd: root }), { stateDir });
 
         const runs = readFileSync(log, "utf8").trim().split("\n");
         const projects = runs.map((line) => line.split("-p ")[1]).sort();
@@ -648,37 +2333,41 @@ describe("project hooks with fake tools", () => {
         ]);
       });
 
-      it("deduplicates a diagnostic reported by several projects", () => {
+      it("deduplicates a diagnostic reported by several projects", async () => {
         writeProjectFile(root, "tsconfig.json", solution([{ path: "./a" }, { path: "./b" }]));
+        declare(root, ["typescript"]);
         writeProjectFile(root, "a/tsconfig.json", "{}");
         writeProjectFile(root, "b/tsconfig.json", "{}");
         fakeBin(root, "tsc", { exit: 2, output: "src/x.ts(1,1): error TS2304: shared" });
         const file = writeProjectFile(root, "src/x.ts", "x");
-        lint(editInput(file), { stateDir });
+        record(editInput(file), { stateDir });
 
-        const { reason } = typecheck(stopInput({ cwd: root }), { stateDir });
+        const { reason } = await check(stopInput({ cwd: root }), { stateDir });
 
         assert.equal(reason.split("TS2304: shared").length, 2);
       });
 
-      it("ignores TS6305 (referenced project not built)", () => {
+      it("ignores TS6305 (referenced project not built)", async () => {
         writeProjectFile(root, "tsconfig.json", "{}");
+        declare(root, ["typescript"]);
         fakeBin(root, "tsc", { exit: 2, output: "src/x.ts(1,1): error TS6305: Output file has not been built" });
-        lint(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
+        record(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
 
-        assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }), null);
+        assert.equal(await check(stopInput({ cwd: root }), { stateDir }), null);
       });
 
-      it("terminates on reference cycles", () => {
+      it("terminates on reference cycles", async () => {
         writeProjectFile(root, "tsconfig.json", solution([{ path: "./a" }]));
+        declare(root, ["typescript"]);
         writeProjectFile(root, "a/tsconfig.json", solution([{ path: ".." }, { path: "." }]));
         fakeBin(root, "tsc", { exit: 2, output: "src/x.ts(1,1): error TS2304: x" });
-        lint(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
+        record(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
 
-        assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }).decision, "block");
+        assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
       });
 
-      it("limits the reference depth", () => {
+      it("limits the reference depth", async () => {
+        declare(root, ["typescript"]);
         for (let level = 0; level < 12; level += 1) {
           writeProjectFile(root, `${"d/".repeat(level)}tsconfig.json`, solution([{ path: "d" }]));
         }
@@ -687,28 +2376,30 @@ describe("project hooks with fake tools", () => {
           writeProjectFile(root, "node_modules/.bin/tsc", `#!/bin/sh\necho run >> "${log}"\nexit 0\n`),
           0o755,
         );
-        lint(editInput(writeProjectFile(root, "x.ts", "x")), { stateDir });
+        record(editInput(writeProjectFile(root, "x.ts", "x")), { stateDir });
 
-        typecheck(stopInput({ cwd: root }), { stateDir });
+        await check(stopInput({ cwd: root }), { stateDir });
 
         const runs = readFileSync(log, "utf8").trim().split("\n").length;
         assert.ok(runs >= 2 && runs < 12);
       });
 
-      it("treats unparseable tsconfig and missing references as having none", () => {
+      it("treats unparseable tsconfig and missing references as having none", async () => {
         writeProjectFile(root, "tsconfig.json", "{ not json");
+        declare(root, ["typescript"]);
         fakeBin(root, "tsc", { exit: 2, output: "src/x.ts(1,1): error TS2304: x" });
-        lint(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
-        assert.equal(typecheck(stopInput({ cwd: root }), { stateDir }).decision, "block");
+        record(editInput(writeProjectFile(root, "src/x.ts", "x")), { stateDir });
+        assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
 
         // Entries that point nowhere are skipped; the root project still runs.
         writeProjectFile(root, "tsconfig.json", solution([{ path: "./missing" }, {}, "x"]));
+        declare(root, ["typescript"]);
         const other = { session_id: "s2" };
-        lint(editInput(join(root, "src/x.ts"), other), { stateDir });
-        assert.equal(typecheck(stopInput({ ...other, cwd: root }), { stateDir }).decision, "block");
+        record(editInput(join(root, "src/x.ts"), other), { stateDir });
+        assert.equal((await check(stopInput({ ...other, cwd: root }), { stateDir })).decision, "block");
       });
 
-      it("reads tsconfig with comments and trailing commas", () => {
+      it("reads tsconfig with comments and trailing commas", async () => {
         const text = `{
           // solution
           "files": [], /* none */
@@ -2519,7 +4210,7 @@ describe("hook invoked through a symlinked directory", () => {
     }
   });
 
-  describe("lint-on-edit and typecheck-on-stop", () => {
+  describe("record-edit and check-on-stop", () => {
     let root;
     let stateDir;
 
@@ -2533,46 +4224,79 @@ describe("hook invoked through a symlinked directory", () => {
       rmSync(stateDir, { recursive: true, force: true });
     });
 
-    it("lint-on-edit prints a block decision", () => {
+    const handbackInput = (extra = {}) => ({
+      session_id: "s1",
+      hook_event_name: "PreToolUse",
+      tool_name: "SubagentHandback",
+      cwd: root,
+      ...extra,
+    });
+
+    it("record-edit prints nothing even when a linter would fail, and check-on-stop blocks on the lint", () => {
       writeProjectFile(root, "eslint.config.js");
+      declare(root, ["eslint"]);
       fakeBin(root, "eslint", { exit: 1, output: "linked boom" });
       const file = writeProjectFile(root, "a.ts", "x");
+      const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
 
-      const output = runRawThroughLink("lint-on-edit.mjs", editInput(file), { CLAUDE_HOOKS_STATE_DIR: stateDir });
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file), env), null);
+      const output = runRawThroughLink("check-on-stop.mjs", stopInput({ cwd: root }), env);
 
       assert.equal(output.decision, "block");
+      assert.ok(output.reason.startsWith("[린트]"));
       assert.ok(output.reason.includes("linked boom"));
     });
 
-    it("typecheck-on-stop reads state written by lint-on-edit and blocks", () => {
+    it("check-on-stop reads state written by record-edit and blocks", () => {
       writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
       const file = writeProjectFile(root, "a.ts", "x");
       const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
 
-      assert.equal(runRawThroughLink("lint-on-edit.mjs", editInput(file), env), null);
-      const output = runRawThroughLink("typecheck-on-stop.mjs", stopInput({ cwd: root }), env);
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file), env), null);
+      const output = runRawThroughLink("check-on-stop.mjs", stopInput({ cwd: root }), env);
 
       assert.equal(output.decision, "block");
       assert.ok(output.reason.includes("TS2304"));
     });
 
-    it("typecheck-on-stop denies SubagentHandback with the PreToolUse output", () => {
+    it("check-on-stop denies SubagentHandback with the PreToolUse output", () => {
       writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
       const file = writeProjectFile(root, "a.ts", "x");
       const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
       const agent = { agent_id: "agent-abc" };
 
-      assert.equal(runRawThroughLink("lint-on-edit.mjs", editInput(file, agent), env), null);
-      const output = runRawThroughLink(
-        "typecheck-on-stop.mjs",
-        { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "SubagentHandback", cwd: root, ...agent },
-        env,
-      );
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file, agent), env), null);
+      const output = runRawThroughLink("check-on-stop.mjs", handbackInput(agent), env);
 
       assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
       assert.ok(output.hookSpecificOutput.permissionDecisionReason.includes("TS2304"));
+    });
+
+    it("check-on-stop prints the asynchronous result of format, lint, tsc and tests through the link", () => {
+      writeProjectFile(root, "tsconfig.json", "{}");
+      writeProjectFile(root, "eslint.config.js");
+      declare(root, ["vitest", "prettier", "typescript", "eslint"]);
+      fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
+      fakeBin(root, "vitest", { exit: 1, output: "FAIL  a.test.ts > adds" });
+      fakeBin(root, "eslint", { exit: 1, output: "linked boom" });
+      fakeShell(root, "prettier", `printf formatted > "$4"`);
+      const file = writeProjectFile(root, "a.ts", "x");
+      const env = { CLAUDE_HOOKS_STATE_DIR: stateDir, CLAUDE_HOOKS_SKIP_TESTS: "" };
+
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file), env), null);
+      const output = runRawThroughLink("check-on-stop.mjs", stopInput({ cwd: root }), env);
+
+      assert.equal(output.decision, "block");
+      const titles = ["[포맷]", "[린트]", "[타입 검사]", "[테스트]"].map((title) => output.reason.indexOf(title));
+      assert.ok(titles.every((index) => index >= 0));
+      assert.deepEqual(titles, [...titles].sort((a, b) => a - b));
+      assert.ok(output.reason.includes("TS2304"));
+      assert.ok(output.reason.includes("FAIL  a.test.ts > adds"));
+      assert.equal(readFileSync(file, "utf8"), "formatted");
     });
   });
 });

@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/typecheck-on-stop.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/check-on-stop.mjs\"",
             "timeout": 300
           }
         ]
@@ -108,8 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/lint-on-edit.mjs\"",
-            "timeout": 60
+            "command": "node \"$HOME/.claude/hooks/record-edit.mjs\"",
+            "timeout": 10
           }
         ]
       },
@@ -162,7 +162,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/typecheck-on-stop.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/check-on-stop.mjs\"",
             "timeout": 300
           }
         ]
@@ -173,7 +173,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/typecheck-on-stop.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/check-on-stop.mjs\"",
             "timeout": 300
           }
         ]

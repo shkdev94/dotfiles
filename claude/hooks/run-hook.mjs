@@ -1,17 +1,17 @@
 // Shared stdin/stdout handling for hooks.
 // `handler` receives the parsed stdin JSON and returns null (no output)
-// or the object to print as the hook's JSON output.
+// or the object to print as the hook's JSON output, directly or as a promise.
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export function runJsonHook(handler, moduleUrl) {
+export async function runJsonHook(handler, moduleUrl) {
   // Node resolves `import.meta.url` to the real path but leaves `argv[1]` as
   // invoked, so resolve symlinks before comparing (~/.claude/hooks is a symlink).
   if (moduleUrl !== pathToFileURL(realpathSync(process.argv[1])).href) {
     return;
   }
 
-  const output = handler(JSON.parse(readFileSync(0, "utf8")));
+  const output = await handler(JSON.parse(readFileSync(0, "utf8")));
   if (output === null) {
     return;
   }
