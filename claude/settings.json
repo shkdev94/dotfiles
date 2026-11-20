@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/check-on-stop.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/report-gate.mjs\"",
             "timeout": 300
           }
         ]
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/delegation-guard.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/report-gate.mjs\"",
             "timeout": 10
           }
         ]
@@ -173,17 +173,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/hooks/check-on-stop.mjs\"",
+            "command": "node \"$HOME/.claude/hooks/report-gate.mjs\"",
             "timeout": 300
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$HOME/.claude/hooks/delegation-guard.mjs\"",
-            "timeout": 10
           }
         ]
       }

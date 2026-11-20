@@ -22,6 +22,36 @@
 - `worker`에게 수정을 맡길 때는 `researcher`가 보고한 `파일:줄`을 함께 넘겨 원문을 직접 읽게 한다. 조사 보고를 원문 대신 전달하지 않는다.
 - 보고받은 결과는 직접 확인한 사실이 아니다. 어느 서브에이전트가 무엇을 확인했는지 구분해 전달하고, 결론에 중요한 내용은 `reviewer`로 교차 확인한다.
 
+### 요청·응답 JSON
+
+`planner`·`researcher`·`worker`·`reviewer` 모두 위임 프롬프트 전체가 JSON 객체 하나다. 앞뒤 설명이나 마크다운을 붙이지 않는다. 서브에이전트의 응답도 JSON 객체 하나이고, 형식은 각 정의(`~/.claude/agents/<type>.md`)의 출력·보고 절에 있다. hook이 요청과 응답 형식을 검증한다.
+
+- 공통 필수 필드: `agent`(`subagent_type`과 같음), `id`(세션 안에서 고유), `plan`(계획 id 또는 null, 생략 불가), `goal`, `instructions`(string[], 1개 이상), `acceptanceCriteria`(string[], 1개 이상). 선택 필드는 `requirement`({"link","excerpt"} 또는 null), `outOfScope`, `context`다.
+- `worker`: `dependsOn`(없으면 []), `writes`(수정할 경로, 디렉터리 전체는 `dir/**`, 공유 상태를 바꾸는 `exclusive: true` 노드만 []), `verification`(1개 이상). 계획 노드(`plan`이 null이 아님)는 `inputs`(`파일:줄`·URL, 1개 이상)도 필수다.
+- `reviewer`: `dependsOn`, `writes`는 [], `verifies`(검증 대상 노드 id). 계획 노드면 `inputs`가 필수다.
+- `researcher`: `dependsOn`(없으면 []). 계획 노드에서도 `writes`는 생략하거나 []다.
+- `writes` 경로 형식은 hook이 검사한다. 저장소 루트 기준 상대 경로(`claude/hooks/x.mjs`)로 쓰고, `./`·`~`로 시작하는 경로, `..` 세그먼트, 루트 전체(`/`, `/**`, `.`, 저장소 루트 자체)는 쓰지 않는다. 와일드카드는 끝의 `/**`(`claude/hooks/**`)만 허용한다. 이 저장소에서 `~/.claude`는 `claude/`로 연결된 심볼릭 링크이므로 `~/.claude/...` 대신 `claude/...`로 쓴다.
+- 나머지 필드 규칙은 `~/.claude/agents/planner.md`의 '요청 형식' 절을 따른다. 요약하면 `planner` 요청의 `writes`는 생략하거나 []이고 `verifies`는 쓰지 않으며 `decisions`는 string[]이다. `exclusive`는 `worker` 전용이다. `requirement`의 `link`·`excerpt`는 비어 있지 않은 문자열이다.
+- `planner`: `plan`은 만들 계획 id(문자열)이고 `dependsOn`은 생략하거나 []다. 최소 요청은 다음과 같다.
+
+```json
+{"agent":"planner","id":"plan-1","plan":"p1","goal":"hook 계약을 JSON으로 바꾼다","instructions":["관련 hook과 에이전트 정의를 읽고 작업 그래프를 세운다"],"acceptanceCriteria":["노드마다 reviewer 노드가 뒤 단계에 있다"]}
+```
+
+- 계획 밖 `researcher`의 최소 요청은 다음과 같다. 메인은 파일을 직접 읽지 못하므로 확인할 파일은 `instructions`에 적어 `researcher`가 읽게 한다.
+
+```json
+{"agent":"researcher","id":"r1","plan":null,"goal":"반려 한도는 어디에 정의되어 있는가","instructions":["claude/hooks에서 반려 한도 상수와 사용처를 찾는다"],"dependsOn":[],"acceptanceCriteria":["상수 이름·값·사용처를 파일:줄로 답한다"]}
+```
+
+- `planner` 응답의 `nodes` 원소는 요청 객체다. 수정하지 않고 그대로 직렬화해 위임 프롬프트 전체로 쓴다.
+- 응답 JSON의 필드로 흐름을 정한다: `planner`는 `status`와 `openQuestions`, `worker`는 `status`(`done`·`blocked`)와 `issues`, `reviewer`는 `verdict`와 `findings`, `researcher`는 `evidence`와 `unverified`를 본다. 사용자에게는 JSON을 그대로 붙이지 않고 `summary` 등을 소통 원칙에 맞춰 서술로 풀어 전달한다.
+- 응답이 형식에 맞지 않으면 hook이 서브에이전트에게 반려하고 agent별 3회까지 고치게 한다. 한도를 넘은 보고는 무효이며 결론·완료의 근거로 쓰지 않는다. 무효 여부는 보고가 도착하는 경로에 따라 다르게 드러난다.
+  - handback 경로(`SubagentHandback`): 한도를 넘으면 보고가 메인에 전달되지 않는다. 이때 '보고 미전달' note가 오는데, 이 문구는 hook이 아니라 Claude Code가 handback이 끝까지 거부됐을 때 메인에 보내는 고정 문구다(`The subagent ended without delivering a report through SubagentHandback, so no report was delivered. ...`). 원문과 사유는 `[report-gate]` 알림으로 따로 온다.
+  - `SubagentStop` 경로: 한도를 넘은 보고가 무효 표시 없이 그대로 메인에 도착한다. 무효 사실은 `[report-gate]` 알림으로만 알려진다.
+  - `[report-gate]` 알림은 메인의 다음 `Agent` 호출 결과(PostToolUse `additionalContext`)나 메인이 응답을 마치려 할 때(Stop hook feedback, 대화가 한 번 이어진다) 전달된다. 그래서 메인은 (a) 도착한 보고 JSON이 계약에 맞지 않거나 형식이 깨져 보이면 알림이 없어도 무효로 간주하고, (b) 다음 `Agent` 호출 결과에 붙은 `[report-gate]` 알림을 확인해 이전 보고의 무효 여부를 반영하며, (c) 응답을 마칠 때 Stop hook feedback으로 알림이 오면 완료를 판단하기 전에 반영한다.
+  - 알림에 원문이 경로로만 오면 `researcher`로 읽게 한 뒤 원인을 보고 같은 노드의 재위임을 검토한다. 무효이거나 미전달인 `reviewer` 보고는 fail로 집계된다.
+
 ### 계획 기준
 
 다음 중 하나라도 해당하면 위임 전에 `planner`로 계획한다.
@@ -42,17 +72,17 @@
 
 ### 계획 실행
 
-- `planner`가 `openQuestions`를 남기면 사용자에게 묻고, 없으면 실행한다. 계획 승인을 구현 승인으로 간주하지 않는다.
+- `planner` 응답의 `status`가 `awaiting_answers`이거나 `openQuestions`가 있으면 사용자에게 묻고, `ready`이면 실행한다. 계획 승인을 구현 승인으로 간주하지 않는다.
 - 계획의 단계 순서대로 실행한다. 같은 단계의 노드는 한 메시지에서 병렬로 호출한다.
 - `writes`가 겹치는 노드와 `exclusive: true` 노드(설치·빌드·lock 파일 재생성·포매터 전체 실행·`nxr`·테스트 전체 실행·개발 서버처럼 공유 상태를 바꾸는 노드)는 다른 `worker` 노드와 병렬 실행하지 않는다. worktree 격리는 쓰지 않고 같은 작업 디렉터리를 공유한다. 커밋은 계획에 넣지 않고 모든 노드가 끝난 뒤 한 번 맡긴다.
 - `worker`는 백그라운드로 맡긴다. `run_in_background: false`(포그라운드)는 hook이 거부하고, 파라미터가 없는 환경에서는 기본값(백그라운드)을 쓴다. 완료는 알림으로 받는다.
 - `worker`는 하위 위임하지 않는다(Agent 도구 제외, 서브에이전트 안의 `worker` 위임은 hook이 거부). 더 나눌 일은 보고에 적게 하고 메인이 계획에 반영한다.
 - `writes`가 겹치는 `worker`는 hook이 병렬 위임을 막는다. 막히면 앞 노드 완료를 기다린다. `writes`를 바꾸려면 SendMessage로 재개하지 말고 새 위임을 한다(재개한 worker에는 첫 위임의 `writes`가 적용된다).
 - `reviewer` 노드는 검증 대상 노드가 속한 단계가 끝난 뒤 실행한다.
-- `worker`·`reviewer` 위임(계획 노드 안 `researcher`도)의 프롬프트 맨 앞에는 `plan-node` 노드 블록을 넣는다. 형식은 `planner` 정의(`~/.claude/agents/planner.md`)를 따르고, 계획을 생략해도 `plan`을 null로 둔 최소 블록을 넣는다.
-- 노드에는 요구사항 링크와 해당 노드의 발췌(`requirement`, 생략·null 허용)를 전달한다. 있으면 `reviewer`가 원문과 대조한다.
-- `worker`는 `writes` 밖 파일을 수정하지 않고, 최종 보고 첫 줄을 `NODE <id>: done` 또는 `NODE <id>: blocked`로 시작한다. `reviewer`는 최종 보고 마지막 줄을 `VERDICT <verifies 노드 id>: pass` 또는 `VERDICT <verifies 노드 id>: fail`로 끝낸다.
-- `VERDICT`가 fail이면 같은 노드를 수정 위임한다. 같은 노드가 3회 fail하면 멈추고 근거를 정리해 사용자에게 보고한다. 사용자 승인 후 새 노드 id로 재시도한다. 계획을 생략한 노드(`plan`이 null)도 세션 안에서 고유한 id를 쓴다.
+- 계획 노드는 `nodes` 원소를 그대로 위임한다. 계획을 생략한 `worker`·`reviewer` 위임도 요청 JSON으로 하고 `plan`은 null로 둔다. 계획을 생략한 노드도 `id`를 세션 안에서 고유하게 쓴다.
+- `requirement`(요구사항 링크와 해당 노드의 발췌, 생략·null 허용)를 전달하면 `reviewer`가 원문과 대조한다.
+- `worker`는 `writes` 밖 파일을 수정하지 않고, 응답 `status`를 `done` 또는 `blocked`로 낸다. `reviewer`는 응답의 `verifies`에 검증 대상 노드 id를 쓰고 `verdict`를 `pass` 또는 `fail`로 낸다.
+- `verdict`가 fail이면 `verifies` 대상 노드를 수정 위임한다. 같은 노드가 `verdict` fail을 3회 받으면 멈추고 근거를 정리해 사용자에게 보고한다. 사용자 승인 후 새 노드 id로 재시도한다.
 
 ## 근거 기반 작업
 

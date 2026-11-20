@@ -1,17 +1,16 @@
-// Stop / SubagentStop / PreToolUse(SubagentHandback): check the JS/TS/Vue/Svelte files this agent edited
-// with the project's own tools. Format runs first and rewrites the files; then lint, typecheck (tsc, only
-// where package.json declares typescript) and the related tests run in parallel and are handed back as one
-// reason. Format never blocks. Each other
-// kind (lint, typecheck, test) blocks the stop up to MAX_BLOCKS times per agent, on every event alike; a
-// kind that reached the limit is not run again. A SubagentStop block after the subagent delivered its
-// final report (SubagentHandback) does not resume it, so the same check runs as a PreToolUse deny on
-// SubagentHandback, before the report is sent.
+// Stop: check the JS/TS/Vue/Svelte files the main conversation edited with the project's own tools. Format runs
+// first and rewrites the files; then lint, typecheck (tsc, only where package.json declares typescript) and the
+// related tests run in parallel and are handed back as one reason. Format never blocks. Each other kind (lint,
+// typecheck, test) blocks the stop up to MAX_BLOCKS times, and a kind that reached the limit is not run again.
 // Timeouts, runs skipped for lack of time, spawn failures and tool errors say nothing about the code, so
-// they never block. They are sent once as factual lines in additionalContext (Stop, SubagentStop) or as one
-// deny (SubagentHandback) whose reason also asks to call SubagentHandback again.
-// Files the formatters changed are listed first in whatever is sent (reason, additionalContext, deny) so the
-// agent reads them again before editing; when nothing else is sent, a format alone sends nothing, because
-// additionalContext would make the agent continue.
+// they never block. They are sent once as factual lines in additionalContext.
+// Files the formatters changed are listed first in whatever is sent so the agent reads them again before
+// editing; when nothing else is sent, a format alone sends nothing, because additionalContext would make the
+// agent continue.
+// The checks themselves (runEditChecks) are also what report-gate.mjs runs when a subagent reports
+// (SubagentStop, PreToolUse on SubagentHandback); this entry point answers Stop only.
+// Stop also hands the main conversation the [report-gate] notices still waiting (delegation-state.mjs
+// takeNotices), so a notice is not lost when no Agent call follows to carry it (see withNotices).
 // CLAUDE_HOOKS_SKIP_TESTS=1 skips the test kind only.
 // Files are recorded by record-edit.mjs.
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -33,13 +32,13 @@ import {
   writeNotified,
 } from "./project-tools.mjs";
 import { DEFAULT_FORMAT_TIMEOUT_MS, DEFAULT_LINT_TIMEOUT_MS, runFormat, runLint } from "./lint-format.mjs";
+import { takeNotices } from "./delegation-state.mjs";
 import { preToolUseOutput, runJsonHook } from "./run-hook.mjs";
 import { runTests } from "./test-runners.mjs";
 
 // Kept here for the callers that import it from this module.
 export { parseJsonc };
 
-const HANDBACK_TOOL = "SubagentHandback";
 const MAX_BLOCKS = 3;
 const DEFAULT_TIMEOUTS = {
   // One formatter run.
@@ -380,24 +379,40 @@ function testSection(failures, beforeHandback, lastCheck) {
   return `${head}\n\n${truncate(body, REASON_LIMIT)}${lastCheck ? `\n\n${LAST_CHECK}` : ""}`;
 }
 
-// Output for the event, or null to let the agent stop (or report).
-async function check(input, { stateDir, env, timeouts }) {
-  const beforeHandback = input.hook_event_name === "PreToolUse";
+// The text sent for notices that came with a failure.
+export function noticeSection(noticeLines) {
+  return `[검증하지 못한 항목]\n다음 항목은 검증하지 못했다. 보고에 남긴다.\n${noticeLines.join("\n")}`;
+}
+
+// Runs the checks of the files this agent edited and cleans its state up: { formatSection, problemSections,
+// noticeLines }. `formatSection` is the text about the files a formatter changed (or null), `problemSections` has
+// one text per kind that failed (lint, typecheck, test), `noticeLines` the facts about checks that could not run
+// and were not sent yet. The edited files, the notified keys and, when everything passed, the whole state
+// are handled here.
+// `kindLimits` true: each kind counts its failures per agent, is not run again after MAX_BLOCKS and its last
+// section says so. false: nothing is counted or skipped; the caller (report-gate.mjs) limits the rejects itself.
+// `beforeHandback` only changes the wording of the sections. `env` and `timeouts` exist for tests.
+export async function runEditChecks(
+  input,
+  { stateDir, env = process.env, timeouts = {}, kindLimits = true, beforeHandback = false } = {},
+) {
+  const limits = { ...DEFAULT_TIMEOUTS, ...timeouts };
   const paths = statePaths(input, stateDir);
   const files = readEditedFiles(paths).filter((file) => existsSync(file));
   if (files.length === 0) {
     clearState(paths);
-    return null;
+    return { formatSection: null, problemSections: [], noticeLines: [] };
   }
 
   // Format first: the other kinds then see the formatted files.
-  const context = { env, deadline: Date.now() + timeouts.total, timeouts };
+  const context = { env, deadline: Date.now() + limits.total, timeouts: limits };
   const formatted = await runFormatKind(files, context);
 
   // A kind that reached its limit is not run again, so an unfixable failure cannot trap the agent.
-  const lintBlocks = readBlockCount(paths.lintBlocksPath);
-  const typecheckBlocks = readBlockCount(paths.typecheckBlocksPath);
-  const testBlocks = readBlockCount(paths.testBlocksPath);
+  const blocksOf = (path) => (kindLimits ? readBlockCount(path) : 0);
+  const lintBlocks = blocksOf(paths.lintBlocksPath);
+  const typecheckBlocks = blocksOf(paths.typecheckBlocksPath);
+  const testBlocks = blocksOf(paths.testBlocksPath);
   const empty = { diagnostics: [], failures: [], notices: [] };
   const [linted, typed, tested] = await Promise.all([
     lintBlocks >= MAX_BLOCKS ? empty : runLintKind(files, context),
@@ -409,7 +424,7 @@ async function check(input, { stateDir, env, timeouts }) {
   const diagnostics = typed.diagnostics ?? [];
   const failures = tested.failures ?? [];
   const cwd = input.cwd ?? process.cwd();
-  const formatLines = formatted.changed.length > 0 ? [formatSection(formatted.changed, cwd)] : [];
+  const formatSectionText = formatted.changed.length > 0 ? formatSection(formatted.changed, cwd) : null;
 
   const notified = readNotified(paths);
   const fresh = new Map();
@@ -422,7 +437,43 @@ async function check(input, { stateDir, env, timeouts }) {
 
   if (lintFailures.length === 0 && diagnostics.length === 0 && failures.length === 0) {
     clearState(paths);
-    // A format alone is not worth continuing the conversation for.
+    return { formatSection: formatSectionText, problemSections: [], noticeLines };
+  }
+
+  const problemSections = [];
+  const countBlock = (path, count) => {
+    if (kindLimits) {
+      writeBlockCount(paths, path, count);
+    }
+  };
+  if (lintFailures.length > 0) {
+    countBlock(paths.lintBlocksPath, lintBlocks + 1);
+    problemSections.push(lintSection(lintFailures, beforeHandback, kindLimits && lintBlocks + 1 >= MAX_BLOCKS));
+  }
+  if (diagnostics.length > 0) {
+    countBlock(paths.typecheckBlocksPath, typecheckBlocks + 1);
+    problemSections.push(
+      typecheckSection(diagnostics, cwd, beforeHandback, kindLimits && typecheckBlocks + 1 >= MAX_BLOCKS),
+    );
+  }
+  if (failures.length > 0) {
+    countBlock(paths.testBlocksPath, testBlocks + 1);
+    problemSections.push(testSection(failures, beforeHandback, kindLimits && testBlocks + 1 >= MAX_BLOCKS));
+  }
+  if (noticeLines.length > 0) {
+    writeNotified(paths, new Set([...notified, ...fresh.keys()]));
+  }
+  return { formatSection: formatSectionText, problemSections, noticeLines };
+}
+
+// The output of the checks for the event, or null to let the agent stop (or report). Stop and SubagentStop:
+// { decision: "block", reason } or additionalContext; PreToolUse on SubagentHandback: a deny. Format sections
+// come first. A format alone sends nothing, because additionalContext would make the agent continue.
+export function outputOf(input, { formatSection: format, problemSections, noticeLines }) {
+  const beforeHandback = input.hook_event_name === "PreToolUse";
+  const formatLines = format === null ? [] : [format];
+
+  if (problemSections.length === 0) {
     if (noticeLines.length === 0) {
       return null;
     }
@@ -441,35 +492,57 @@ async function check(input, { stateDir, env, timeouts }) {
     };
   }
 
-  const sections = [...formatLines];
-  if (lintFailures.length > 0) {
-    writeBlockCount(paths, paths.lintBlocksPath, lintBlocks + 1);
-    sections.push(lintSection(lintFailures, beforeHandback, lintBlocks + 1 >= MAX_BLOCKS));
-  }
-  if (diagnostics.length > 0) {
-    writeBlockCount(paths, paths.typecheckBlocksPath, typecheckBlocks + 1);
-    sections.push(typecheckSection(diagnostics, cwd, beforeHandback, typecheckBlocks + 1 >= MAX_BLOCKS));
-  }
-  if (failures.length > 0) {
-    writeBlockCount(paths, paths.testBlocksPath, testBlocks + 1);
-    sections.push(testSection(failures, beforeHandback, testBlocks + 1 >= MAX_BLOCKS));
-  }
+  const sections = [...formatLines, ...problemSections];
   if (noticeLines.length > 0) {
-    writeNotified(paths, new Set([...notified, ...fresh.keys()]));
-    sections.push(`[검증하지 못한 항목]\n다음 항목은 검증하지 못했다. 보고에 남긴다.\n${noticeLines.join("\n")}`);
+    sections.push(noticeSection(noticeLines));
   }
-
   const reason = sections.join("\n\n");
   return beforeHandback ? preToolUseOutput({ decision: "deny", reason }) : { decision: "block", reason };
 }
 
-// Stop / SubagentStop: { decision: "block", reason } or additionalContext. PreToolUse on SubagentHandback: a deny.
-// `env` and `timeouts` exist for tests.
+// Adds the waiting [report-gate] notice lines to a Stop output. No notices: the output as it is. No output:
+// an additionalContext output (it makes the agent continue once and read the notices). A block reason or an
+// additionalContext gets the notices after a blank line.
+export function withNotices(output, notices) {
+  if (notices.length === 0) {
+    return output;
+  }
+  const text = notices.join("\n");
+  if (output === null) {
+    return { hookSpecificOutput: { hookEventName: "Stop", additionalContext: text } };
+  }
+  if (output.decision === "block") {
+    return { ...output, reason: `${output.reason}\n\n${text}` };
+  }
+  const context = output.hookSpecificOutput?.additionalContext;
+  return {
+    ...output,
+    hookSpecificOutput: { ...output.hookSpecificOutput, additionalContext: context ? `${context}\n\n${text}` : text },
+  };
+}
+
+// Stop only; SubagentStop and PreToolUse(SubagentHandback) are report-gate.mjs's. `env` and `timeouts` exist
+// for tests. In the main conversation (no agent_id) the notices waiting for it are added after the checks, so
+// notices queued while the checks ran are included. takeNotices records noticeTaken before the output goes
+// out, so a notice is sent once: a Stop that only carried notices continues the conversation once, and the
+// next Stop finds none (and no check result) and outputs null, even when stop_hook_active is true. Nothing
+// waiting means nothing is added, so there is no loop; Claude Code's cap of consecutive Stop continuations is a
+// further safety net. A failure of takeNotices must not fail the Stop hook.
 export async function evaluate(input, { stateDir, env = process.env, timeouts = {} } = {}) {
-  if (input.hook_event_name === "PreToolUse" && input.tool_name !== HANDBACK_TOOL) {
+  if (input.hook_event_name !== "Stop") {
     return null;
   }
-  return check(input, { stateDir, env, timeouts: { ...DEFAULT_TIMEOUTS, ...timeouts } });
+  const output = outputOf(input, await runEditChecks(input, { stateDir, env, timeouts, kindLimits: true }));
+  if (input.agent_id !== undefined && input.agent_id !== null) {
+    return output;
+  }
+  let notices = [];
+  try {
+    notices = takeNotices(input, stateDir);
+  } catch {
+    // Notices are best effort here.
+  }
+  return withNotices(output, notices);
 }
 
 runJsonHook((input) => evaluate(input), import.meta.url);

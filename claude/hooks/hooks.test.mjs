@@ -19,9 +19,11 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { evaluate as delegate } from "./delegate-to-subagent.mjs";
 import { evaluate as guardAgents } from "./delegation-guard.mjs";
+import { archiveInvalidReport, recordStop } from "./delegation-state.mjs";
 import { evaluate as guard } from "./guard-dangerous.mjs";
 import { evaluate as check, parseDiagnostics, parseJsonc } from "./check-on-stop.mjs";
 import { evaluate as readonly } from "./readonly-bash.mjs";
+import { evaluate as gate } from "./report-gate.mjs";
 import { evaluate as record } from "./record-edit.mjs";
 import {
   agentKeyOf,
@@ -35,6 +37,10 @@ import {
   sessionStatePath,
   statePaths,
 } from "./project-tools.mjs";
+import "./agent-contract.test.mjs";
+import "./check-on-stop.test.mjs";
+import "./delegation-state.test.mjs";
+import "./report-gate.test.mjs";
 import "./test-runners.test.mjs";
 
 const HOME = homedir();
@@ -893,10 +899,10 @@ describe("project hooks with fake tools", () => {
       writeProjectFile(root, "eslint.config.js");
       declare(root, ["eslint"]);
       fakeBin(root, "eslint", { exit: 1, output: "lint error" });
-      const agent = { agent_id: "agent-abc", agent_type: "worker" };
+      const agent = { agent_id: "agent-abc", agent_type: "general-purpose" };
       record(editInput(writeProjectFile(root, "src/a.js", "x"), agent), { stateDir });
 
-      const result = await check(
+      const result = await gate(
         { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "SubagentHandback", cwd: root, ...agent },
         { stateDir },
       );
@@ -1441,10 +1447,10 @@ describe("project hooks with fake tools", () => {
       declare(root, ["typescript"]);
       fakeFormatter("prettier");
       fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(3,5): error TS2322: bad" });
-      const agent = { agent_id: "agent-abc", agent_type: "worker" };
+      const agent = { agent_id: "agent-abc", agent_type: "general-purpose" };
       record(editInput(writeProjectFile(root, "src/a.ts", "x"), agent), { stateDir });
 
-      const result = await check(
+      const result = await gate(
         { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "SubagentHandback", cwd: root, ...agent },
         { stateDir },
       );
@@ -1698,7 +1704,7 @@ describe("project hooks with fake tools", () => {
 
     it("keeps state per agent: a subagent stop ignores main's files", async () => {
       setup();
-      assert.equal(await check(stopInput({ hook_event_name: "SubagentStop", agent_id: "agent-zzz" }), { stateDir }), null);
+      assert.equal(await gate(stopInput({ hook_event_name: "SubagentStop", agent_id: "agent-zzz" }), { stateDir }), null);
       assert.equal((await check(stopInput({ cwd: root }), { stateDir })).decision, "block");
     });
 
@@ -1709,7 +1715,7 @@ describe("project hooks with fake tools", () => {
       const file = writeProjectFile(root, "src/a.ts", "x");
       record(editInput(file, { agent_id: "agent-abc" }), { stateDir });
 
-      const result = await check(stopInput({ hook_event_name: "SubagentStop", agent_id: "abc", cwd: root }), { stateDir });
+      const result = await gate(stopInput({ hook_event_name: "SubagentStop", agent_id: "abc", cwd: root }), { stateDir });
       assert.equal(result.decision, "block");
     });
 
@@ -1795,8 +1801,9 @@ describe("project hooks with fake tools", () => {
       assert.equal((await check(input, { stateDir })).decision, "block");
     });
 
-    describe("before the final report (PreToolUse on SubagentHandback)", () => {
-      const AGENT = { agent_id: "agent-abc", agent_type: "worker" };
+    describe("before the final report of another agent (report-gate, PreToolUse on SubagentHandback)", () => {
+      // An agent of another type: the format of its report is not checked, only the edited files.
+      const AGENT = { agent_id: "agent-abc", agent_type: "general-purpose" };
       const handbackInput = (extra = {}) => ({
         session_id: "s1",
         hook_event_name: "PreToolUse",
@@ -1818,7 +1825,7 @@ describe("project hooks with fake tools", () => {
       it("denies with the PreToolUse output format and a before-report reason", async () => {
         setupSubagent();
 
-        const result = await check(handbackInput(), { stateDir });
+        const result = await gate(handbackInput(), { stateDir });
 
         assert.deepEqual(Object.keys(result), ["hookSpecificOutput"]);
         assert.equal(result.hookSpecificOutput.hookEventName, "PreToolUse");
@@ -1832,7 +1839,7 @@ describe("project hooks with fake tools", () => {
       it("keeps the Stop and SubagentStop output as decision block", async () => {
         setupSubagent();
 
-        const result = await check(subagentStop(), { stateDir });
+        const result = await gate(subagentStop(), { stateDir });
 
         assert.equal(result.decision, "block");
         assert.equal(result.hookSpecificOutput, undefined);
@@ -1840,8 +1847,8 @@ describe("project hooks with fake tools", () => {
 
       it("does nothing for other tools", async () => {
         setupSubagent();
-        assert.equal(await check(handbackInput({ tool_name: "Bash" }), { stateDir }), null);
-        assert.equal(await check(handbackInput({ tool_name: "Read" }), { stateDir }), null);
+        assert.equal(await gate(handbackInput({ tool_name: "Bash" }), { stateDir }), null);
+        assert.equal(await gate(handbackInput({ tool_name: "Read" }), { stateDir }), null);
         // and does not consume the block count
         assert.equal(existsSync(statePaths(handbackInput(), stateDir).typecheckBlocksPath), false);
       });
@@ -1852,35 +1859,35 @@ describe("project hooks with fake tools", () => {
         fakeBin(root, "tsc", { exit: 0 });
         record(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
 
-        assert.equal(await check(handbackInput(), { stateDir }), null);
+        assert.equal(await gate(handbackInput(), { stateDir }), null);
         assert.equal(existsSync(statePaths(handbackInput(), stateDir).filesPath), false);
-        assert.equal(await check(subagentStop(), { stateDir }), null);
+        assert.equal(await gate(subagentStop(), { stateDir }), null);
       });
 
       it("allows the report after the errors are fixed, and the SubagentStop after it", async () => {
         setupSubagent();
-        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
+        assert.equal((await gate(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
 
         fakeBin(root, "tsc", { exit: 0 });
-        assert.equal(await check(handbackInput(), { stateDir }), null);
-        assert.equal(await check(subagentStop(), { stateDir }), null);
+        assert.equal(await gate(handbackInput(), { stateDir }), null);
+        assert.equal(await gate(subagentStop(), { stateDir }), null);
       });
 
       it("denies the report again when the same diagnostics repeat", async () => {
         setupSubagent();
 
-        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
-        assert.equal((await check(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
+        assert.equal((await gate(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
+        assert.equal((await gate(handbackInput(), { stateDir })).hookSpecificOutput.permissionDecision, "deny");
       });
 
       it("shares the three-block limit with Stop and SubagentStop", async () => {
         setupSubagent();
         for (let attempt = 0; attempt < 3; attempt += 1) {
           fakeBin(root, "tsc", { exit: 2, output: `src/a.ts(${attempt + 1},1): error TS2322: attempt ${attempt}` });
-          assert.ok(await check(attempt % 2 === 0 ? handbackInput() : subagentStop(), { stateDir }) !== null);
+          assert.ok(await gate(attempt % 2 === 0 ? handbackInput() : subagentStop(), { stateDir }) !== null);
         }
         fakeBin(root, "tsc", { exit: 2, output: "src/a.ts(9,1): error TS2322: attempt 3" });
-        assert.equal(await check(handbackInput(), { stateDir }), null);
+        assert.equal(await gate(handbackInput(), { stateDir }), null);
       });
 
       it("denies a Handback with a text-only notice once, then lets the report through", async () => {
@@ -1890,7 +1897,7 @@ describe("project hooks with fake tools", () => {
         record(editInput(writeProjectFile(root, "src/a.ts", "x"), AGENT), { stateDir });
         const options = { stateDir, timeouts: { tsc: 1000 } };
 
-        const first = await check(handbackInput(), options);
+        const first = await gate(handbackInput(), options);
 
         assert.equal(first.hookSpecificOutput.hookEventName, "PreToolUse");
         assert.equal(first.hookSpecificOutput.permissionDecision, "deny");
@@ -1898,8 +1905,8 @@ describe("project hooks with fake tools", () => {
           first.hookSpecificOutput.permissionDecisionReason,
           "다음 항목을 검증하지 못했다. 보고에 남기고 SubagentHandback을 다시 호출하라\n- tsc가 1초 안에 끝나지 않아 검증하지 못했다.",
         );
-        assert.equal(await check(handbackInput(), options), null);
-        assert.equal(await check(subagentStop(), options), null);
+        assert.equal(await gate(handbackInput(), options), null);
+        assert.equal(await gate(subagentStop(), options), null);
       });
     });
 
@@ -2027,11 +2034,11 @@ describe("project hooks with fake tools", () => {
         writeProjectFile(root, "tsconfig.json", "{}");
         declare(root, ["typescript"]);
         fakeScript("tsc", "sleep 5");
-        const agent = { agent_id: "agent-abc", agent_type: "worker" };
+        const agent = { agent_id: "agent-abc", agent_type: "general-purpose" };
         record(editInput(writeProjectFile(root, "src/a.ts", "x"), agent), { stateDir });
         const input = stopInput({ hook_event_name: "SubagentStop", ...agent, cwd: root });
 
-        const result = await check(input, { stateDir, timeouts: { tsc: 1000 } });
+        const result = await gate(input, { stateDir, timeouts: { tsc: 1000 } });
 
         assert.deepEqual(result, {
           hookSpecificOutput: {
@@ -2039,7 +2046,7 @@ describe("project hooks with fake tools", () => {
             additionalContext: "- tsc가 1초 안에 끝나지 않아 검증하지 못했다.",
           },
         });
-        assert.equal(await check(input, { stateDir, timeouts: { tsc: 1000 } }), null);
+        assert.equal(await gate(input, { stateDir, timeouts: { tsc: 1000 } }), null);
       });
 
       it("uses the Stop event name for Stop notices", async () => {
@@ -2435,8 +2442,11 @@ describe("delegation-guard", () => {
     id: "n1",
     agent: "worker",
     dependsOn: [],
+    goal: "a()를 고친다",
+    instructions: ["src/a.ts를 읽고 고친다"],
     writes: ["src/a.ts"],
     acceptanceCriteria: ["a() returns null"],
+    verification: ["node --test"],
     inputs: ["src/a.ts:1-10"],
     ...extra,
   });
@@ -2445,6 +2455,8 @@ describe("delegation-guard", () => {
     id: "r1",
     agent: "reviewer",
     dependsOn: ["n1"],
+    goal: "n1을 검증한다",
+    instructions: ["diff를 읽는다"],
     writes: [],
     verifies: "n1",
     acceptanceCriteria: ["checked"],
@@ -2456,10 +2468,23 @@ describe("delegation-guard", () => {
     id: "q1",
     agent: "researcher",
     dependsOn: [],
+    goal: "a()의 호출처를 찾는다",
+    instructions: ["grep으로 찾는다"],
     acceptanceCriteria: ["found"],
     ...extra,
   });
-  const withBlock = (node, body = "본문") => `\`\`\`plan-node\n${JSON.stringify(node)}\n\`\`\`\n\n${body}`;
+  const plannerNode = (extra = {}) => ({
+    plan: "p1",
+    id: "pl1",
+    agent: "planner",
+    dependsOn: [],
+    goal: "계획을 세운다",
+    instructions: ["요구사항을 읽는다"],
+    acceptanceCriteria: ["nodes가 있다"],
+    ...extra,
+  });
+  // A request is the whole prompt: one JSON object. `context` carries a long body.
+  const requestPrompt = (node, context) => JSON.stringify(context === undefined ? node : { ...node, context });
   // A worker launch is a background launch unless `toolInput` says otherwise (a key set to undefined is omitted).
   const launchInput = (type, prompt, { toolInput = {}, ...extra } = {}) => ({
     session_id: "s1",
@@ -2471,67 +2496,67 @@ describe("delegation-guard", () => {
     ...extra,
   });
   const run = (input) => guardAgents(input, { stateDir });
+  // SubagentStop and SubagentHandback are the events of report-gate.mjs, which writes their records
+  // (stop, delivered, verdict); every other event goes to delegation-guard.mjs.
+  const feedEvent = async (input) =>
+    input.hook_event_name === "SubagentStop" || input.tool_name === "SubagentHandback" ? gate(input, { stateDir }) : run(input);
   const verdictOf = (result) => (result === null ? "allow" : result.hookSpecificOutput.permissionDecision);
   const reasonOf = (result) => result.hookSpecificOutput.permissionDecisionReason;
 
   describe("format check", () => {
-    it("allows well-formed blocks for each agent type", () => {
-      assert.equal(run(launchInput("worker", withBlock(workerNode()))), null);
-      assert.equal(run(launchInput("reviewer", withBlock(reviewerNode()))), null);
-      assert.equal(run(launchInput("researcher", withBlock(researcherNode()))), null);
+    it("allows well-formed requests for each agent type", async () => {
+      assert.equal(run(launchInput("worker", requestPrompt(workerNode()))), null);
+      assert.equal(run(launchInput("reviewer", requestPrompt(reviewerNode()))), null);
+      assert.equal(run(launchInput("researcher", requestPrompt(researcherNode()))), null);
+      assert.equal(run(launchInput("planner", requestPrompt(plannerNode()))), null);
     });
 
-    it("allows leading blank lines and indentation-free whitespace before the block", () => {
-      assert.equal(run(launchInput("worker", `\n  \n${withBlock(workerNode())}`)), null);
+    it("allows surrounding whitespace and a single ``` fence around the request", async () => {
+      assert.equal(run(launchInput("worker", `\n  \n${requestPrompt(workerNode())}\n\n`)), null);
+      assert.equal(run(launchInput("reviewer", `\`\`\`json\n${requestPrompt(reviewerNode())}\n\`\`\``)), null);
     });
 
-    it("passes unrelated agent types without a block", () => {
-      assert.equal(run(launchInput("planner", "plan this")), null);
+    it("passes unrelated agent types without a request", async () => {
       assert.equal(run(launchInput("general-purpose", "do it")), null);
       assert.equal(run({ session_id: "s1", hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { prompt: "x" } }), null);
     });
 
-    it("makes the block optional for researcher", () => {
-      assert.equal(run(launchInput("researcher", "그냥 조사해라")), null);
+    it("requires a request for researcher and planner too", async () => {
+      for (const type of ["researcher", "planner"]) {
+        const result = run(launchInput(type, "그냥 해라"));
+        assert.equal(verdictOf(result), "deny", type);
+        assert.ok(reasonOf(result).includes("올바른 JSON이 아니다"), reasonOf(result));
+      }
     });
 
-    it("validates a researcher block when one is present", () => {
-      const result = run(launchInput("researcher", withBlock(researcherNode({ acceptanceCriteria: [] }))));
+    it("validates a researcher request", async () => {
+      const result = run(launchInput("researcher", requestPrompt(researcherNode({ acceptanceCriteria: [] }))));
       assert.equal(verdictOf(result), "deny");
     });
 
-    it("checks nested calls from subagents too", () => {
-      const result = run(launchInput("researcher", withBlock(researcherNode({ acceptanceCriteria: [] })), { agent_id: "a1", agent_type: "worker" }));
+    it("checks nested calls from subagents too", async () => {
+      const result = run(launchInput("researcher", requestPrompt(researcherNode({ acceptanceCriteria: [] })), { agent_id: "a1", agent_type: "worker" }));
       assert.equal(verdictOf(result), "deny");
     });
 
     const structural = [
-      ["a missing block", "그냥 지시", "맨 앞에 plan-node 블록이 없다"],
-      ["a block that is not the first content", `먼저 설명\n\n${"```plan-node"}\n{}\n\`\`\``, "맨 앞"],
-      ["an invalid JSON block", "```plan-node\n{not json}\n```\n본문", "올바른 JSON이 아니다"],
-      ["a JSON array block", "```plan-node\n[]\n```\n본문", "JSON 객체 하나"],
-      ["an unclosed block", `\`\`\`plan-node\n${JSON.stringify(workerNode())}\n본문`, "닫는"],
-      ["an open line with an extra info string", `\`\`\`plan-node json\n${JSON.stringify(workerNode())}\n\`\`\``, "정확히"],
+      ["plain text", "그냥 지시", "올바른 JSON이 아니다"],
+      ["text before the request", `먼저 설명\n\n${JSON.stringify(workerNode())}`, "올바른 JSON이 아니다"],
+      ["text after the request", `${JSON.stringify(workerNode())}\n\n끝`, "올바른 JSON이 아니다"],
+      ["invalid JSON", "{not json}", "올바른 JSON이 아니다"],
+      ["a JSON array", "[]", "JSON 객체 하나여야 한다"],
+      ["the earlier plan-node block format", `\`\`\`plan-node\n${JSON.stringify(workerNode())}\n\`\`\`\n\n본문`, "여는 펜스는 정확히"],
+      ["an unclosed fence", `\`\`\`json\n${JSON.stringify(workerNode())}`, "펜스를 닫는"],
     ];
     for (const [name, prompt, expected] of structural) {
-      it(`denies ${name}`, () => {
+      it(`denies ${name}`, async () => {
         const result = run(launchInput("worker", prompt));
         assert.equal(verdictOf(result), "deny");
         assert.ok(reasonOf(result).includes(expected), reasonOf(result));
-        assert.ok(reasonOf(result).includes("planner.md"));
+        assert.ok(reasonOf(result).includes("JSON 객체 하나로 쓴다"), reasonOf(result));
+        assert.ok(reasonOf(result).includes("~/.claude/agents/planner.md의 '요청 형식' 절"), reasonOf(result));
       });
     }
-
-    it("treats plan-node blocks after the first as body text", () => {
-      const prompt = `${withBlock(workerNode())}\n\n예시를 이렇게 고쳐라:\n\n${withBlock(workerNode({ id: "example" }))}`;
-      assert.equal(run(launchInput("worker", prompt)), null);
-    });
-
-    it("denies an indented opening fence and says so", () => {
-      const result = run(launchInput("worker", `  \`\`\`plan-node\n${JSON.stringify(workerNode())}\n  \`\`\``));
-      assert.equal(verdictOf(result), "deny");
-      assert.ok(reasonOf(result).includes("들여쓰기 없이"), reasonOf(result));
-    });
 
     const fieldCases = [
       ["agent differs from subagent_type", "worker", workerNode({ agent: "reviewer" }), "agent는"],
@@ -2563,17 +2588,21 @@ describe("delegation-guard", () => {
       ["reviewer without verifies", "reviewer", (({ verifies: _verifies, ...rest }) => rest)(reviewerNode()), "verifies"],
       ["reviewer plan node without inputs", "reviewer", (({ inputs: _inputs, ...rest }) => rest)(reviewerNode()), "inputs"],
       ["researcher with writes", "researcher", researcherNode({ writes: ["a.ts"] }), "researcher의 writes"],
+      ["missing goal", "worker", (({ goal: _goal, ...rest }) => rest)(workerNode()), "goal"],
+      ["empty instructions", "worker", workerNode({ instructions: [] }), "instructions"],
+      ["worker without verification", "worker", (({ verification: _verification, ...rest }) => rest)(workerNode()), "verification"],
+      ["planner without a plan id", "planner", plannerNode({ plan: null }), "planner의 plan"],
     ];
     for (const [name, type, node, expected] of fieldCases) {
-      it(`denies ${name}`, () => {
-        const result = run(launchInput(type, withBlock(node)));
+      it(`denies ${name}`, async () => {
+        const result = run(launchInput(type, requestPrompt(node)));
         assert.equal(verdictOf(result), "deny");
         assert.ok(reasonOf(result).includes(expected), reasonOf(result));
       });
     }
 
-    it("lists every violation in one reason", () => {
-      const result = run(launchInput("worker", withBlock(workerNode({ id: "", writes: ["./a", "b/../c"], acceptanceCriteria: [] }))));
+    it("lists every violation in one reason", async () => {
+      const result = run(launchInput("worker", requestPrompt(workerNode({ id: "", writes: ["./a", "b/../c"], acceptanceCriteria: [] }))));
       const reason = reasonOf(result);
       for (const part of ["id는", "./", "..", "acceptanceCriteria"]) {
         assert.ok(reason.includes(part), reason);
@@ -2588,67 +2617,109 @@ describe("delegation-guard", () => {
       ["requirement object", "worker", workerNode({ requirement: { link: "https://x", excerpt: "e" } })],
       ["reviewer with null plan", "reviewer", (({ inputs: _inputs, ...rest }) => ({ ...rest, plan: null }))(reviewerNode())],
       ["researcher with empty writes", "researcher", researcherNode({ writes: [] })],
+      ["researcher with a null plan", "researcher", researcherNode({ plan: null })],
+      ["planner", "planner", plannerNode()],
     ];
     for (const [name, type, node] of allowedCases) {
-      it(`allows ${name}`, () => {
-        assert.equal(run(launchInput(type, withBlock(node))), null);
+      it(`allows ${name}`, async () => {
+        assert.equal(run(launchInput(type, requestPrompt(node))), null);
       });
     }
+
+    describe("writes that cover the whole repository", () => {
+      let repo;
+      beforeEach(() => {
+        repo = realpathSync(mkdtempSync(join(tmpdir(), "hooks-repo-")));
+        mkdirSync(join(repo, ".git"));
+        mkdirSync(join(repo, "sub"));
+      });
+      afterEach(() => {
+        rmSync(repo, { recursive: true, force: true });
+      });
+
+      const rootCases = [
+        ["/", () => "/"],
+        [".", () => "."],
+        ["the absolute repository root", () => repo],
+        ["the absolute repository root with /**", () => `${repo}/**`],
+        ["the repository root with a trailing slash", () => `${repo}/`],
+        ["the repository root through a symlink", () => join(repo, "sub", "..")],
+      ];
+      for (const [name, entry] of rootCases) {
+        it(`denies writes of ${name}`, async () => {
+          const result = run(launchInput("worker", requestPrompt(workerNode({ writes: [entry()] })), { cwd: join(repo, "sub") }));
+          assert.equal(verdictOf(result), "deny");
+          assert.ok(reasonOf(result).includes("루트 전체"), reasonOf(result));
+          assert.ok(reasonOf(result).includes("~/.claude/agents/planner.md의 '요청 형식' 절"), reasonOf(result));
+        });
+      }
+
+      it("names the entry that covers the repository and still allows the others", async () => {
+        const result = run(launchInput("worker", requestPrompt(workerNode({ writes: ["src/a.ts", `${repo}/**`] })), { cwd: join(repo, "sub") }));
+        assert.ok(reasonOf(result).includes(`writes 항목 ${JSON.stringify(`${repo}/**`)}: 루트 전체(저장소 루트 자체)`), reasonOf(result));
+        assert.ok(!reasonOf(result).includes("src/a.ts"), reasonOf(result));
+        assert.equal(run(launchInput("worker", requestPrompt(workerNode({ id: "n2", writes: [`${repo}/sub/**`, `${repo}/src/a.ts`] })), { cwd: join(repo, "sub") })), null);
+      });
+
+      it("allows an exclusive node with empty writes", async () => {
+        assert.equal(run(launchInput("worker", requestPrompt(workerNode({ writes: [], exclusive: true })), { cwd: join(repo, "sub") })), null);
+      });
+    });
   });
 
   describe("launch rules", () => {
     const BACKGROUND_REASON = "run_in_background: false";
     const NESTED_REASON = "하위 위임하지 않는다";
 
-    it("denies a worker launch only when run_in_background is explicitly false", () => {
+    it("denies a worker launch only when run_in_background is explicitly false", async () => {
       for (const [index, [name, value]] of [["true", true], ["the string true", "true"], ["undefined", undefined], ["null", null]].entries()) {
         const node = workerNode({ id: `n${index + 1}`, writes: [`allowed-${index}.txt`] });
-        assert.equal(run(launchInput("worker", withBlock(node), { toolInput: { run_in_background: value } })), null, name);
+        assert.equal(run(launchInput("worker", requestPrompt(node), { toolInput: { run_in_background: value } })), null, name);
       }
       for (const [name, value] of [["false", false], ["the string false", "false"]]) {
-        const result = run(launchInput("worker", withBlock(workerNode()), { toolInput: { run_in_background: value } }));
+        const result = run(launchInput("worker", requestPrompt(workerNode()), { toolInput: { run_in_background: value } }));
         assert.equal(verdictOf(result), "deny", name);
         assert.ok(reasonOf(result).includes(BACKGROUND_REASON), `${name}: ${reasonOf(result)}`);
         assert.ok(reasonOf(result).includes("종료 기록"), reasonOf(result));
       }
     });
 
-    it("allows a worker launch whose tool input has no run_in_background key", () => {
-      const input = launchInput("worker", withBlock(workerNode()));
+    it("allows a worker launch whose tool input has no run_in_background key", async () => {
+      const input = launchInput("worker", requestPrompt(workerNode()));
       const toolInput = { ...input.tool_input };
       delete toolInput.run_in_background;
       assert.ok(!("run_in_background" in toolInput));
       assert.equal(run({ ...input, tool_input: toolInput }), null);
     });
 
-    it("does not require a background launch for reviewer and researcher", () => {
+    it("does not require a background launch for reviewer and researcher", async () => {
       for (const value of [false, undefined, true]) {
-        assert.equal(run(launchInput("reviewer", withBlock(reviewerNode()), { toolInput: { run_in_background: value } })), null);
-        assert.equal(run(launchInput("researcher", withBlock(researcherNode()), { toolInput: { run_in_background: value } })), null);
-        assert.equal(run(launchInput("researcher", "그냥 조사해라", { toolInput: { run_in_background: value } })), null);
+        assert.equal(run(launchInput("reviewer", requestPrompt(reviewerNode()), { toolInput: { run_in_background: value } })), null);
+        assert.equal(run(launchInput("researcher", requestPrompt(researcherNode()), { toolInput: { run_in_background: value } })), null);
+        assert.equal(run(launchInput("planner", requestPrompt(plannerNode()), { toolInput: { run_in_background: value } })), null);
       }
     });
 
-    it("denies a worker launch made from inside a subagent, with or without a block", () => {
-      for (const prompt of [withBlock(workerNode()), "no block"]) {
+    it("denies a worker launch made from inside a subagent, with or without a block", async () => {
+      for (const prompt of [requestPrompt(workerNode()), "no block"]) {
         const result = run(launchInput("worker", prompt, { agent_id: "a1", agent_type: "worker" }));
         assert.equal(verdictOf(result), "deny");
         assert.ok(reasonOf(result).includes(NESTED_REASON), reasonOf(result));
         assert.ok(reasonOf(result).includes("보고에 적어"), reasonOf(result));
       }
-      assert.equal(verdictOf(run(launchInput("worker", withBlock(workerNode()), { agent_id: "a1", agent_type: "reviewer" }))), "deny");
+      assert.equal(verdictOf(run(launchInput("worker", requestPrompt(workerNode()), { agent_id: "a1", agent_type: "reviewer" }))), "deny");
     });
 
-    it("handles a researcher or reviewer launch from inside a subagent as before", () => {
+    it("handles a researcher or reviewer launch from inside a subagent as before", async () => {
       const nested = { agent_id: "a1", agent_type: "worker" };
-      assert.equal(run(launchInput("researcher", withBlock(researcherNode()), nested)), null);
-      assert.equal(run(launchInput("researcher", "그냥 조사해라", nested)), null);
-      assert.equal(run(launchInput("reviewer", withBlock(reviewerNode()), nested)), null);
+      assert.equal(run(launchInput("researcher", requestPrompt(researcherNode()), nested)), null);
+      assert.equal(verdictOf(run(launchInput("researcher", "그냥 조사해라", nested))), "deny");
+      assert.equal(run(launchInput("reviewer", requestPrompt(reviewerNode()), nested)), null);
       assert.equal(verdictOf(run(launchInput("reviewer", "no block", nested))), "deny");
     });
 
-    it("collects every reason in one deny", () => {
-      const result = run(launchInput("worker", withBlock(workerNode()), { toolInput: { run_in_background: false }, agent_id: "a1", agent_type: "worker" }));
+    it("collects every reason in one deny", async () => {
+      const result = run(launchInput("worker", requestPrompt(workerNode()), { toolInput: { run_in_background: false }, agent_id: "a1", agent_type: "worker" }));
       assert.equal(verdictOf(result), "deny");
       assert.ok(reasonOf(result).startsWith("위임을 거부한다:"), reasonOf(result));
       assert.ok(reasonOf(result).includes(BACKGROUND_REASON) && reasonOf(result).includes(NESTED_REASON), reasonOf(result));
@@ -2656,13 +2727,13 @@ describe("delegation-guard", () => {
 
       const withFormat = run(launchInput("worker", "no block", { toolInput: { run_in_background: "false" }, agent_id: "a1", agent_type: "worker" }));
       const reason = reasonOf(withFormat);
-      assert.ok(reason.includes("plan-node 블록이 없다") && reason.includes(BACKGROUND_REASON) && reason.includes(NESTED_REASON), reason);
-      assert.ok(reason.includes("planner.md"), reason);
+      assert.ok(reason.includes("올바른 JSON이 아니다") && reason.includes(BACKGROUND_REASON) && reason.includes(NESTED_REASON), reason);
+      assert.ok(reason.includes("'요청 형식' 절"), reason);
     });
 
-    it("does not record a launch it denied", () => {
-      run(launchInput("worker", withBlock(workerNode()), { toolInput: { run_in_background: false }, tool_use_id: "t1" }));
-      run(launchInput("worker", withBlock(workerNode({ id: "n2" })), { agent_id: "a1", tool_use_id: "t2" }));
+    it("does not record a launch it denied", async () => {
+      run(launchInput("worker", requestPrompt(workerNode()), { toolInput: { run_in_background: false }, tool_use_id: "t1" }));
+      run(launchInput("worker", requestPrompt(workerNode({ id: "n2" })), { agent_id: "a1", tool_use_id: "t2" }));
       assert.deepEqual(readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)), []);
     });
   });
@@ -2705,274 +2776,571 @@ describe("delegation-guard", () => {
       counter = 0;
     });
 
+    // A valid reviewer report as the JSON text the reviewer ends with.
+    const report = (node, result, { plan = "p1", id = "r1", ...extra } = {}) =>
+      JSON.stringify({
+        agent: "reviewer",
+        plan,
+        id,
+        summary: "검증했다",
+        verifies: node,
+        verdict: result,
+        findings: [{ claim: "n1의 변경이 요구와 맞는다", status: "confirmed", evidence: ["src/a.ts:3"] }],
+        ...extra,
+      });
+    // "pass" and "fail" stand for the valid report of that reviewer; any other text is delivered as it is.
+    const textFor = ({ node, plan }, text) => (text === "pass" || text === "fail" ? report(node, text, { plan }) : text);
+
     function launchReviewer({ plan = "p1", node = "n1" } = {}) {
       counter += 1;
       const toolUseId = `t${counter}`;
       const agentId = `rev${counter}`;
-      assert.equal(run(launchInput("reviewer", withBlock(reviewerNode({ plan, verifies: node })), { tool_use_id: toolUseId })), null);
-      return { toolUseId, agentId };
+      assert.equal(run(launchInput("reviewer", requestPrompt(reviewerNode({ plan, verifies: node })), { tool_use_id: toolUseId })), null);
+      return { toolUseId, agentId, plan, node };
     }
 
     // Launch a reviewer and deliver its events in `order`. `stop` carries no message in handback mode.
-    function review(text, { order = ["handback", "stop", "bind"], ...launchOptions } = {}) {
-      const { toolUseId, agentId } = launchReviewer(launchOptions);
-      deliver({ toolUseId, agentId }, text, order);
-      return agentId;
+    async function review(text, { order = ["handback", "stop", "bind"], ...launchOptions } = {}) {
+      const reviewer = launchReviewer(launchOptions);
+      await deliver(reviewer, text, order);
+      return reviewer.agentId;
     }
-    function deliver({ toolUseId, agentId }, text, order = ["handback", "stop", "bind"]) {
+    async function deliver(reviewer, text, order = ["handback", "stop", "bind"]) {
+      const { toolUseId, agentId } = reviewer;
+      const body = textFor(reviewer, text);
       const events = {
-        handback: () => handback(agentId, text),
+        handback: () => handback(agentId, body),
         stop: () => stop(agentId),
-        stopWithMessage: () => stop(agentId, text),
+        stopWithMessage: () => stop(agentId, body),
         bind: () => bind(toolUseId, agentId),
       };
       for (const name of order) {
-        assert.equal(run(events[name]()), null);
+        assert.equal(await feedEvent(events[name]()), null);
       }
     }
-    const verdict = (node, result) => `근거...\n\nVERDICT ${node}: ${result}\n`;
     // A probe launch; an allowed worker is bound and stopped at once so it does not count as running for the
     // next probe.
-    const workerLaunch = (node = {}) => {
+    const workerLaunch = async (node = {}) => {
       counter += 1;
       const toolUseId = `w${counter}`;
       const agentId = `worker${counter}`;
-      const result = run(launchInput("worker", withBlock(workerNode(node)), { tool_use_id: toolUseId }));
+      const result = run(launchInput("worker", requestPrompt(workerNode(node)), { tool_use_id: toolUseId }));
       if (result === null) {
         run(bind(toolUseId, agentId, { tool_input: { subagent_type: "worker", prompt: "x" }, tool_response: { status: "async_launched", agentId } }));
-        run({ session_id: "s1", hook_event_name: "SubagentStop", agent_id: agentId, agent_type: "worker" });
+        await feedEvent({ session_id: "s1", hook_event_name: "SubagentStop", agent_id: agentId, agent_type: "worker" });
       }
       return result;
     };
 
-    it("allows after one or two fails and denies at the third", () => {
-      review(verdict("n1", "fail"));
-      assert.equal(workerLaunch(), null);
-      review(verdict("n1", "fail"));
-      assert.equal(workerLaunch(), null);
-      review(verdict("n1", "fail"));
-      const result = workerLaunch();
+    it("allows after one or two fails and denies at the third", async () => {
+      await review("fail");
+      assert.equal(await workerLaunch(), null);
+      await review("fail");
+      assert.equal(await workerLaunch(), null);
+      await review("fail");
+      const result = await workerLaunch();
       assert.equal(verdictOf(result), "deny");
       assert.ok(reasonOf(result).includes("3회 실패"));
       assert.ok(reasonOf(result).includes("새 노드 id"));
     });
 
-    it("also denies a reviewer launch for a node that failed three times", () => {
+    it("also denies a reviewer launch for a node that failed three times", async () => {
       for (let i = 0; i < 3; i++) {
-        review(verdict("n1", "fail"));
+        await review("fail");
       }
-      assert.equal(verdictOf(run(launchInput("reviewer", withBlock(reviewerNode())))), "deny");
+      assert.equal(verdictOf(run(launchInput("reviewer", requestPrompt(reviewerNode())))), "deny");
     });
 
-    it("resets the count after a pass", () => {
+    it("resets the count after a pass", async () => {
       for (const result of ["fail", "fail", "pass", "fail", "fail"]) {
-        review(verdict("n1", result));
+        await review(result);
       }
-      assert.equal(workerLaunch(), null);
-      review(verdict("n1", "fail"));
-      assert.equal(verdictOf(workerLaunch()), "deny");
+      assert.equal(await workerLaunch(), null);
+      await review("fail");
+      assert.equal(verdictOf(await workerLaunch()), "deny");
     });
 
-    it("counts fails per node and per plan", () => {
+    it("counts fails per node and per plan", async () => {
       for (let i = 0; i < 3; i++) {
-        review(verdict("n1", "fail"));
+        await review("fail");
       }
-      assert.equal(verdictOf(workerLaunch()), "deny");
-      assert.equal(workerLaunch({ id: "n2" }), null);
-      assert.equal(workerLaunch({ plan: "p2" }), null);
+      assert.equal(verdictOf(await workerLaunch()), "deny");
+      assert.equal(await workerLaunch({ id: "n2" }), null);
+      assert.equal(await workerLaunch({ plan: "p2" }), null);
     });
 
-    it("keys plan-less nodes by node id", () => {
+    it("keys plan-less nodes by node id", async () => {
       for (let i = 0; i < 3; i++) {
-        review(verdict("n1", "fail"), { plan: null });
+        await review("fail", { plan: null });
       }
-      assert.equal(verdictOf(workerLaunch({ plan: null })), "deny");
-      assert.equal(workerLaunch({ plan: null, id: "other" }), null);
+      assert.equal(verdictOf(await workerLaunch({ plan: null })), "deny");
+      assert.equal(await workerLaunch({ plan: null, id: "other" }), null);
     });
 
-    it("counts a missing or malformed verdict line as fail", () => {
-      review(verdict("n1", "fail"));
-      review("판정을 적지 않은 보고");
-      review("VERDICT n1: maybe");
-      assert.equal(verdictOf(workerLaunch()), "deny");
-    });
+    describe("a report that is not a valid result counts as fail", () => {
+      const badReports = [
+        ["free text", "판정을 적지 않은 보고"],
+        ["the earlier VERDICT line", "근거...\n\nVERDICT n1: pass\n"],
+        ["an unknown verdict", report("n1", "maybe")],
+        ["text around the JSON", `결과:\n${report("n1", "pass")}\n끝`],
+        ["a pass with an unconfirmed finding", report("n1", "pass", { findings: [{ claim: "c", status: "unverified", evidence: [] }] })],
+        ["a pass without findings", report("n1", "pass", { findings: [] })],
+        ["a report of another agent type", report("n1", "pass", { agent: "worker" })],
+      ];
+      for (const [name, text] of badReports) {
+        it(`${name}`, async () => {
+          await review("fail");
+          await review("fail");
+          await review(text);
+          assert.equal(verdictOf(await workerLaunch()), "deny");
+        });
+      }
 
-    it("requires the verdict on the last non-empty line", () => {
-      review("VERDICT n1: pass\n\n추가 설명");
-      review("VERDICT n1: pass extra");
-      review("VERDICT n1:pass");
-      assert.equal(verdictOf(workerLaunch()), "deny");
-    });
+      it("checks the report against the request when the bind came first", async () => {
+        const bindFirst = { order: ["bind", "handback", "stop"] };
+        await review("fail");
+        await review(report("zzz", "pass"), bindFirst);
+        assert.equal(await workerLaunch(), null);
+        await review(report("n1", "pass", { id: "other" }), bindFirst);
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+      });
 
-    it("accepts emphasis around the verdict line", () => {
-      const decorations = ["**VERDICT {n}: pass**", "`VERDICT {n}: pass`", "__VERDICT {n}: pass__", "  *VERDICT {n}: pass*  "];
-      decorations.forEach((template, index) => {
-        const node = `e${index}`;
-        // Two fails and a decorated pass: if the pass were not read, the third fail would block the node.
-        review(verdict(node, "fail"), { node });
-        review(verdict(node, "fail"), { node });
-        review(template.replace("{n}", node), { node });
-        assert.equal(workerLaunch({ id: node }), null, template);
-        review(verdict(node, "fail"), { node });
-        assert.equal(workerLaunch({ id: node }), null, template);
+      it("accepts a valid pass when the bind came first", async () => {
+        await review("fail");
+        await review("fail");
+        await review("pass", { order: ["bind", "handback", "stop"] });
+        assert.equal(await workerLaunch(), null);
+        await review("fail");
+        assert.equal(await workerLaunch(), null);
+      });
+
+      it("does not let an invalid pass reset the count", async () => {
+        await review("fail");
+        await review("fail");
+        await review(report("n1", "pass", { summary: "" }));
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+      });
+
+      it("accepts a valid report wrapped in a ``` fence", async () => {
+        await review("fail");
+        await review("fail");
+        await review(`\`\`\`json\n${report("n1", "pass")}\n\`\`\``);
+        assert.equal(await workerLaunch(), null);
       });
     });
 
-    it("reads the verdict from SubagentStop when there is no handback", () => {
+    it("reads the verdict from SubagentStop when there is no handback", async () => {
       for (let i = 0; i < 3; i++) {
-        review(verdict("n1", "fail"), { order: ["stopWithMessage", "bind"] });
+        await review("fail", { order: ["stopWithMessage", "bind"] });
       }
-      assert.equal(verdictOf(workerLaunch()), "deny");
+      assert.equal(verdictOf(await workerLaunch()), "deny");
     });
 
     describe("event order", () => {
       for (const order of HANDBACK_ORDERS) {
-        it(`attributes verdicts correctly when events arrive as ${order.join(" > ")}`, () => {
-          // Reviewers for A and B run at the same time; B reports a bold pass.
+        it(`attributes verdicts correctly when events arrive as ${order.join(" > ")}`, async () => {
+          // Reviewers for A and B run at the same time; B reports a pass.
           const a = [launchReviewer({ node: "A" }), launchReviewer({ node: "A" }), launchReviewer({ node: "A" })];
           const b = launchReviewer({ node: "B" });
-          deliver(b, "**VERDICT B: pass**", order);
+          await deliver(b, "pass", order);
           for (const reviewer of a) {
-            deliver(reviewer, verdict("A", "fail"), order);
+            await deliver(reviewer, "fail", order);
           }
-          assert.equal(verdictOf(workerLaunch({ id: "A" })), "deny");
-          assert.equal(workerLaunch({ id: "B" }), null);
+          assert.equal(verdictOf(await workerLaunch({ id: "A" })), "deny");
+          assert.equal(await workerLaunch({ id: "B" }), null);
         });
 
-        it(`resets on a pass and counts later fails when events arrive as ${order.join(" > ")}`, () => {
+        it(`resets on a pass and counts later fails when events arrive as ${order.join(" > ")}`, async () => {
           for (const [text, expected] of [
-            [verdict("n1", "fail"), null],
-            [verdict("n1", "fail"), null],
-            ["**VERDICT n1: pass**", null],
-            [verdict("n1", "fail"), null],
-            [verdict("n1", "fail"), null],
-            [verdict("n1", "fail"), "deny"],
+            ["fail", null],
+            ["fail", null],
+            ["pass", null],
+            ["fail", null],
+            ["fail", null],
+            ["fail", "deny"],
           ]) {
-            review(text, { order });
-            assert.equal(verdictOf(workerLaunch()), expected ?? "allow");
+            await review(text, { order });
+            assert.equal(verdictOf(await workerLaunch()), expected ?? "allow");
           }
         });
       }
 
       for (const order of permutations(["stopWithMessage", "bind"])) {
-        it(`works without a handback when events arrive as ${order.join(" > ")}`, () => {
-          for (const text of [verdict("n1", "fail"), verdict("n1", "fail"), verdict("n1", "fail")]) {
-            review(text, { order });
+        it(`works without a handback when events arrive as ${order.join(" > ")}`, async () => {
+          for (let i = 0; i < 3; i++) {
+            await review("fail", { order });
           }
-          assert.equal(verdictOf(workerLaunch()), "deny");
+          assert.equal(verdictOf(await workerLaunch()), "deny");
         });
       }
+    });
+
+    describe("handback outranks stop", () => {
+      // The same reviewer reports a pass through SubagentStop and a fail through the handback (or the other way
+      // round); the handback verdict decides whichever arrives first.
+      const cases = [
+        ["handback fail, then stop pass", ["handback", "stopWithMessage"], "fail", "pass", "deny"],
+        ["stop pass, then handback fail", ["stopWithMessage", "handback"], "fail", "pass", "deny"],
+        ["handback pass, then stop fail", ["handback", "stopWithMessage"], "pass", "fail", "allow"],
+        ["stop fail, then handback pass", ["stopWithMessage", "handback"], "pass", "fail", "allow"],
+      ];
+      for (const [name, order, handbackResult, stopResult, expected] of cases) {
+        it(`${name}`, async () => {
+          for (let i = 0; i < 2; i++) {
+            await review("fail");
+          }
+          const reviewer = launchReviewer();
+          for (const event of order) {
+            const text = event === "handback" ? textFor(reviewer, handbackResult) : textFor(reviewer, stopResult);
+            assert.equal(await feedEvent(event === "handback" ? handback(reviewer.agentId, text) : stop(reviewer.agentId, text)), null);
+          }
+          assert.equal(run(bind(reviewer.toolUseId, reviewer.agentId)), null);
+          assert.equal(verdictOf(await workerLaunch()), expected);
+        });
+      }
+
+      it("skips the stop verdict when a handback verdict is already recorded", async () => {
+        const reviewer = launchReviewer();
+        await feedEvent(handback(reviewer.agentId, textFor(reviewer, "fail")));
+        await feedEvent(stop(reviewer.agentId, textFor(reviewer, "pass")));
+        const verdicts = readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)).filter((record) => record.kind === "verdict");
+        assert.deepEqual(verdicts.map((record) => record.source), ["handback"]);
+      });
+
+      it("keeps the latest verdict of the same source", async () => {
+        const reviewer = launchReviewer();
+        run(bind(reviewer.toolUseId, reviewer.agentId));
+        await feedEvent(stop(reviewer.agentId, textFor(reviewer, "fail")));
+        assert.equal(verdictOf(await workerLaunch()), "allow");
+        for (let i = 0; i < 2; i++) {
+          await review("fail");
+        }
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+        await feedEvent(stop(reviewer.agentId, textFor(reviewer, "pass")));
+        assert.equal(await workerLaunch(), null);
+      });
+    });
+
+    describe("records written before the report gate", () => {
+      const path = () => sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir);
+      // Old launches carry no `request`, old verdicts no `source`, and a fenced prompt cannot be read back.
+      const legacyReviewer = (n, result, { plan = "p1", node = "n1" } = {}) => {
+        appendJsonl(path(), { kind: "launch", ts: 1, toolUseId: `lt${n}`, agentType: "reviewer", plan, id: `lr${n}`, verifies: node, writes: [], exclusive: false, root: "/x" });
+        appendJsonl(path(), { kind: "bind", ts: 2, toolUseId: `lt${n}`, agentId: `lrev${n}`, status: "async_launched" });
+        appendJsonl(path(), { kind: "verdict", ts: 3, agentId: `lrev${n}`, node, verdict: result });
+      };
+
+      it("counts source-less verdicts of a launch without a request", async () => {
+        for (let i = 1; i <= 3; i++) {
+          legacyReviewer(i, "fail");
+        }
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+      });
+
+      it("ranks a source-less verdict like a stop verdict", async () => {
+        legacyReviewer(1, "fail");
+        appendJsonl(path(), { kind: "verdict", ts: 4, agentId: "lrev1", node: "n1", verdict: "pass" });
+        assert.equal(await workerLaunch(), null);
+        for (let i = 2; i <= 4; i++) {
+          legacyReviewer(i, "fail");
+        }
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+        appendJsonl(path(), { kind: "verdict", ts: 5, agentId: "lrev2", node: "n1", verdict: "pass", source: "handback" });
+        appendJsonl(path(), { kind: "verdict", ts: 6, agentId: "lrev2", node: "n1", verdict: "fail" });
+        assert.equal(await workerLaunch(), null);
+      });
     });
 
     describe("attribution", () => {
       const records = () => readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir));
 
-      it("records only facts at event time", () => {
+      it("records only facts at event time", async () => {
         const reviewer = launchReviewer();
-        deliver(reviewer, verdict("n1", "fail"));
+        await deliver(reviewer, "fail");
         const kinds = records().map((record) => record.kind);
-        assert.deepEqual(kinds, ["launch", "verdict", "bind"]);
+        assert.deepEqual(kinds, ["launch", "delivered", "verdict", "bind"]);
         assert.deepEqual(
           records().find((record) => record.kind === "bind"),
-          { kind: "bind", ts: records()[2].ts, toolUseId: reviewer.toolUseId, agentId: reviewer.agentId, status: "completed" },
+          { kind: "bind", ts: records()[3].ts, toolUseId: reviewer.toolUseId, agentId: reviewer.agentId, status: "completed" },
+        );
+        const verdictRecord = records().find((record) => record.kind === "verdict");
+        assert.deepEqual(
+          { agentId: verdictRecord.agentId, node: verdictRecord.node, verdict: verdictRecord.verdict, source: verdictRecord.source },
+          { agentId: reviewer.agentId, node: "n1", verdict: "fail", source: "handback" },
         );
       });
 
-      it("does not record a SubagentStop without a message", () => {
-        launchReviewer();
-        run(stop("rev1"));
-        assert.equal(records().filter((record) => record.kind === "verdict").length, 0);
+      it("stores the request on the launch of a worker and a reviewer, and no launch for the others", async () => {
+        run(launchInput("worker", requestPrompt(workerNode()), { tool_use_id: "tw" }));
+        run(launchInput("reviewer", requestPrompt(reviewerNode()), { tool_use_id: "tr" }));
+        run(launchInput("researcher", requestPrompt(researcherNode()), { tool_use_id: "tq" }));
+        run(launchInput("planner", requestPrompt(plannerNode()), { tool_use_id: "tp" }));
+        const launches = records().filter((record) => record.kind === "launch");
+        assert.deepEqual(launches.map((record) => record.agentType), ["worker", "reviewer"]);
+        assert.deepEqual(launches[0].request, workerNode());
+        assert.deepEqual(launches[1].request, reviewerNode());
       });
 
-      it("ignores a verdict that is bound to nothing and names no node", () => {
+      it("counts a reviewer that stops without a message or a delivered report as fail", async () => {
+        // Not bound to any launch: the verdict names no node, so it counts for nothing.
+        launchReviewer();
+        await feedEvent(stop("rev1"));
+        const verdicts = records().filter((record) => record.kind === "verdict");
+        assert.deepEqual(verdicts.map((record) => [record.agentId, record.verdict, record.source]), [["rev1", "fail", "stop"]]);
+        assert.equal(await workerLaunch(), null);
+        // Bound to its launch, each such stop is a fail of the node it verifies.
+        for (let i = 0; i < 3; i++) {
+          const reviewer = launchReviewer();
+          await feedEvent(bind(reviewer.toolUseId, reviewer.agentId));
+          await feedEvent(stop(reviewer.agentId));
+        }
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+      });
+
+      it("does not count a reviewer whose report was delivered before its message-less stop", async () => {
+        const reviewer = launchReviewer();
+        await deliver(reviewer, "pass", ["handback", "stop", "bind"]);
+        assert.deepEqual(records().filter((record) => record.kind === "verdict").map((record) => record.verdict), ["pass"]);
+      });
+
+      it("ignores a verdict that is bound to nothing and names no node", async () => {
         launchReviewer();
         for (let i = 0; i < 3; i++) {
-          run(stop(`ghost${i}`, "정리했다"));
+          await feedEvent(stop(`ghost${i}`));
         }
-        assert.equal(workerLaunch(), null);
+        assert.equal(await workerLaunch(), null);
       });
 
-      it("falls back to the node on the verdict line when the bind is missing", () => {
+      it("falls back to the node named in the report when the bind is missing", async () => {
         for (let i = 0; i < 3; i++) {
           const { agentId } = launchReviewer({ plan: "p9" });
-          run(handback(agentId, verdict("n1", "fail")));
+          await feedEvent(handback(agentId, report("n1", "fail", { plan: "p9" })));
         }
-        assert.equal(verdictOf(workerLaunch({ plan: "p9" })), "deny");
-        assert.equal(workerLaunch({ plan: "p1" }), null);
+        assert.equal(verdictOf(await workerLaunch({ plan: "p9" })), "deny");
+        assert.equal(await workerLaunch({ plan: "p1" }), null);
       });
 
-      it("falls back to the latest launch that verifies the node", () => {
+      it("falls back to the latest launch that verifies the node", async () => {
         launchReviewer({ plan: "p1" });
         launchReviewer({ plan: "p2" });
         for (let i = 0; i < 3; i++) {
-          run(handback(`orphan${i}`, verdict("n1", "fail")));
+          await feedEvent(handback(`orphan${i}`, report("n1", "fail")));
         }
-        assert.equal(verdictOf(workerLaunch({ plan: "p2" })), "deny");
-        assert.equal(workerLaunch({ plan: "p1" }), null);
+        assert.equal(verdictOf(await workerLaunch({ plan: "p2" })), "deny");
+        assert.equal(await workerLaunch({ plan: "p1" }), null);
       });
 
-      it("ignores a verdict whose node matches no launch and has no bind", () => {
+      it("ignores a verdict whose node matches no launch and has no bind", async () => {
         launchReviewer();
         for (let i = 0; i < 3; i++) {
-          run(handback(`orphan${i}`, verdict("zzz", "fail")));
+          await feedEvent(handback(`orphan${i}`, report("zzz", "fail")));
         }
-        assert.equal(workerLaunch({ id: "zzz" }), null);
-        assert.equal(workerLaunch(), null);
+        assert.equal(await workerLaunch({ id: "zzz" }), null);
+        assert.equal(await workerLaunch(), null);
       });
 
-      it("trusts the bound launch over the node written on the line", () => {
+      it("trusts the bound launch over the node written in the report", async () => {
         for (let i = 0; i < 3; i++) {
-          review(verdict("n1-typo", "fail"));
+          await review(report("n1-typo", "fail"));
         }
-        assert.equal(verdictOf(workerLaunch()), "deny");
+        assert.equal(verdictOf(await workerLaunch()), "deny");
       });
 
-      it("counts one reviewer agent once, using its latest verdict", () => {
+      it("counts one reviewer agent once, using its latest verdict", async () => {
         const reviewer = launchReviewer();
-        deliver(reviewer, verdict("n1", "fail"));
-        run(stop(reviewer.agentId, verdict("n1", "fail")));
-        run(handback(reviewer.agentId, verdict("n1", "fail")));
-        review(verdict("n1", "fail"));
-        assert.equal(workerLaunch(), null);
-        review(verdict("n1", "fail"));
-        assert.equal(verdictOf(workerLaunch()), "deny");
+        await deliver(reviewer, "fail");
+        await feedEvent(stop(reviewer.agentId, textFor(reviewer, "fail")));
+        await feedEvent(handback(reviewer.agentId, textFor(reviewer, "fail")));
+        await review("fail");
+        assert.equal(await workerLaunch(), null);
+        await review("fail");
+        assert.equal(verdictOf(await workerLaunch()), "deny");
       });
 
-      it("uses the newest verdict when the same agent is resumed and re-judges", () => {
-        review(verdict("n1", "fail"));
-        review(verdict("n1", "fail"));
+      it("uses the newest verdict when the same agent is resumed and re-judges", async () => {
+        await review("fail");
+        await review("fail");
         const resumed = launchReviewer();
-        deliver(resumed, verdict("n1", "fail"));
-        assert.equal(verdictOf(workerLaunch()), "deny");
-        run(stop(resumed.agentId, verdict("n1", "pass")));
-        assert.equal(workerLaunch(), null);
+        await deliver(resumed, "fail", ["stopWithMessage", "bind"]);
+        assert.equal(verdictOf(await workerLaunch()), "deny");
+        await feedEvent(stop(resumed.agentId, textFor(resumed, "pass")));
+        assert.equal(await workerLaunch(), null);
       });
 
-      it("ignores verdicts from other agent types", () => {
+      it("ignores verdicts from other agent types", async () => {
         for (let i = 0; i < 3; i++) {
           launchReviewer();
-          run({ ...handback(`w${i}`, verdict("n1", "fail")), agent_type: "worker" });
+          await feedEvent({ ...handback(`w${i}`, report("n1", "fail")), agent_type: "worker" });
         }
-        assert.equal(workerLaunch(), null);
+        assert.equal(await workerLaunch(), null);
       });
 
-      it("binds only worker and reviewer launches", () => {
+      it("binds only worker and reviewer launches", async () => {
         run(bind("tx", "agx", { tool_input: { subagent_type: "researcher", prompt: "x" } }));
         run(bind("ty", undefined));
         assert.equal(records().length, 0);
       });
 
-      it("keeps state per session", () => {
+      it("keeps state per session", async () => {
         for (let i = 0; i < 3; i++) {
-          review(verdict("n1", "fail"));
+          await review("fail");
         }
-        assert.equal(run(launchInput("worker", withBlock(workerNode()), { session_id: "s2" })), null);
+        assert.equal(run(launchInput("worker", requestPrompt(workerNode()), { session_id: "s2" })), null);
       });
 
-      it("does not record or block on unrelated events", () => {
+      it("does not record or block on unrelated events", async () => {
         assert.equal(run({ session_id: "s1", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } }), null);
         assert.equal(run({ session_id: "s1", hook_event_name: "Stop" }), null);
       });
+    });
+  });
+
+  describe("subagent records", () => {
+    const records = () => readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir));
+    const subagent = (event, agentType, agentId = "a1", extra = {}) => ({
+      session_id: "s1",
+      hook_event_name: event,
+      agent_id: agentId,
+      agent_type: agentType,
+      ...extra,
+    });
+
+    it("records SubagentStart for all four agent types", async () => {
+      for (const type of ["planner", "researcher", "worker", "reviewer"]) {
+        assert.equal(run(subagent("SubagentStart", type, `a-${type}`)), null);
+      }
+      assert.deepEqual(
+        records().map((record) => [record.kind, record.agentId, record.agentType]),
+        ["planner", "researcher", "worker", "reviewer"].map((type) => ["start", `a-${type}`, type]),
+      );
+    });
+
+    it("ignores internal agents and events without an agent id", async () => {
+      run(subagent("SubagentStart", ""));
+      run(subagent("SubagentStart", "general-purpose"));
+      run(subagent("SubagentStart", undefined));
+      run({ session_id: "s1", hook_event_name: "SubagentStart", agent_type: "worker" });
+      assert.deepEqual(records(), []);
+    });
+
+    it("neither records nor answers SubagentStop and SubagentHandback (report-gate.mjs owns them)", async () => {
+      for (const type of ["planner", "researcher", "worker", "reviewer"]) {
+        const agentId = `a-${type}`;
+        assert.equal(run(subagent("SubagentStop", type, agentId, { last_assistant_message: "x" })), null);
+        assert.equal(run(subagent("SubagentStop", type, agentId)), null);
+        assert.equal(run({ ...subagent("PreToolUse", type, agentId), tool_name: "SubagentHandback", tool_input: { message: "x" } }), null);
+        assert.equal(run({ ...subagent("PostToolUse", type, agentId), tool_name: "SubagentHandback", tool_input: { message: "{}" } }), null);
+      }
+      assert.deepEqual(records(), []);
+    });
+
+    it("keeps starts of other agent types out of the running workers", async () => {
+      const toolUseId = "tw";
+      assert.equal(run(launchInput("worker", requestPrompt(workerNode()), { tool_use_id: toolUseId })), null);
+      run({
+        session_id: "s1",
+        hook_event_name: "PostToolUse",
+        tool_name: "Agent",
+        tool_use_id: toolUseId,
+        tool_input: { subagent_type: "worker", prompt: "x" },
+        tool_response: { status: "async_launched", agentId: "w1" },
+      });
+      for (const type of ["planner", "researcher", "reviewer"]) {
+        run(subagent("SubagentStart", type, `a-${type}`));
+      }
+      // The starts of the other types neither block a disjoint worker nor release the running one.
+      assert.equal(run(launchInput("worker", requestPrompt(workerNode({ id: "n2", writes: ["src/b.ts"] })), { tool_use_id: "tw2" })), null);
+      assert.equal(verdictOf(run(launchInput("worker", requestPrompt(workerNode({ id: "n3" })), { tool_use_id: "tw3" }))), "deny");
+      await feedEvent(subagent("SubagentStop", "worker", "w1"));
+      assert.equal(run(launchInput("worker", requestPrompt(workerNode({ id: "n3" })), { tool_use_id: "tw4" })), null);
+    });
+
+    it("records a delivered report for every agent type on SubagentHandback", async () => {
+      for (const type of ["planner", "researcher", "worker", "reviewer"]) {
+        await feedEvent({ ...subagent("PostToolUse", type, `a-${type}`), tool_name: "SubagentHandback", tool_input: { message: "{}" } });
+      }
+      assert.deepEqual(
+        records().filter((record) => record.kind === "delivered").map((record) => record.agentId),
+        ["a-planner", "a-researcher", "a-worker", "a-reviewer"],
+      );
+    });
+  });
+
+  describe("notices for the main conversation", () => {
+    const stateInput = { session_id: "s1", agent_id: "rev1", agent_type: "reviewer" };
+    const postAgent = (extra = {}) => ({
+      session_id: "s1",
+      hook_event_name: "PostToolUse",
+      tool_name: "Agent",
+      tool_use_id: "t1",
+      tool_input: { subagent_type: "researcher", prompt: "x" },
+      tool_response: { status: "completed", agentId: "a9" },
+      ...extra,
+    });
+    const archive = (extra = {}) =>
+      archiveInvalidReport({
+        input: stateInput,
+        stateDir,
+        agentType: "reviewer",
+        plan: "p1",
+        id: "r1",
+        source: "handback",
+        reasons: ["verdict는 pass 또는 fail이어야 한다"],
+        raw: "원문 보고",
+        n: 4,
+        delivered: false,
+        ...extra,
+      });
+
+    it("hands a queued notice to the main conversation once, as additionalContext", async () => {
+      archive();
+      const output = run(postAgent());
+      assert.equal(output.hookSpecificOutput.hookEventName, "PostToolUse");
+      const text = output.hookSpecificOutput.additionalContext;
+      assert.ok(text.includes("[report-gate]") && text.includes("verdict는 pass 또는 fail이어야 한다") && text.includes("원문 보고"), text);
+      assert.equal(run(postAgent({ tool_use_id: "t2" })), null);
+    });
+
+    it("does not consume a notice on a subagent's own Agent call", async () => {
+      archive();
+      assert.equal(run(postAgent({ agent_id: "a1", agent_type: "worker" })), null);
+      const output = run(postAgent({ tool_use_id: "t2" }));
+      assert.ok(output.hookSpecificOutput.additionalContext.includes("[report-gate]"));
+    });
+
+    it("delivers only the latest notice of an agent and none twice", async () => {
+      archive({ n: 4, raw: "첫 원문" });
+      archive({ n: 5, raw: "두 번째 원문" });
+      const text = run(postAgent()).hookSpecificOutput.additionalContext;
+      assert.ok(text.includes("두 번째 원문") && !text.includes("첫 원문"), text);
+      assert.equal(run(postAgent({ tool_use_id: "t2" })), null);
+    });
+
+    it("joins the notices of different agents and returns null with nothing queued", async () => {
+      assert.equal(run(postAgent()), null);
+      archive();
+      archiveInvalidReport({
+        input: { session_id: "s1", agent_id: "wk1", agent_type: "worker" },
+        stateDir,
+        agentType: "worker",
+        plan: null,
+        id: "n1",
+        source: "stop",
+        reasons: ["status가 필요하다"],
+        raw: "x",
+        n: 4,
+        delivered: true,
+      });
+      const lines = run(postAgent()).hookSpecificOutput.additionalContext.split("\n");
+      assert.equal(lines.length, 2);
+      assert.ok(lines[1].includes("무효로 전달"), lines[1]);
+    });
+
+    it("still records the bind when it hands over a notice", async () => {
+      archive();
+      run(postAgent({ tool_input: { subagent_type: "worker", prompt: "x" } }));
+      const kinds = readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)).map((record) => record.kind);
+      assert.ok(kinds.includes("bind") && kinds.includes("noticeTaken"), kinds.join());
     });
   });
 
@@ -2998,7 +3366,7 @@ describe("delegation-guard", () => {
     function attempt(node, { launchCwd = cwd, now } = {}) {
       counter += 1;
       const toolUseId = `t${counter}`;
-      const input = launchInput("worker", withBlock(workerNode({ dependsOn: [], ...node })), { tool_use_id: toolUseId, cwd: launchCwd });
+      const input = launchInput("worker", requestPrompt(workerNode({ dependsOn: [], ...node })), { tool_use_id: toolUseId, cwd: launchCwd });
       const result = guardAgents(input, now === undefined ? { stateDir } : { stateDir, now });
       return { result, toolUseId, agentId: `w${counter}` };
     }
@@ -3018,8 +3386,19 @@ describe("delegation-guard", () => {
       });
     const completedBind = ({ toolUseId, agentId }) => post(toolUseId, agentId, "completed");
     const startBackground = ({ toolUseId, agentId }) => post(toolUseId, agentId, "async_launched");
-    const stopWorker = ({ agentId }, message) =>
-      run({
+    // A valid worker report: report-gate.mjs blocks a SubagentStop whose message is not one.
+    const WORKER_REPORT = JSON.stringify({
+      agent: "worker",
+      plan: "p1",
+      id: "n1",
+      status: "done",
+      summary: "고쳤다",
+      changed: [],
+      checks: [],
+      issues: [],
+    });
+    const stopWorker = async ({ agentId }, message) =>
+      feedEvent({
         session_id: "s1",
         hook_event_name: "SubagentStop",
         agent_id: agentId,
@@ -3027,9 +3406,9 @@ describe("delegation-guard", () => {
         ...(message === undefined ? {} : { last_assistant_message: message }),
       });
     // The normal end of a worker: its async bind, then its SubagentStop.
-    const finish = (worker) => {
+    const finish = async (worker) => {
       startBackground(worker);
-      stopWorker(worker);
+      await stopWorker(worker);
     };
     const blocked = (node, options) => {
       const { result } = attempt(node, options);
@@ -3038,7 +3417,7 @@ describe("delegation-guard", () => {
     };
     const allowed = (node, options) => assert.equal(attempt(node, options).result, null);
 
-    it("denies a worker whose writes overlap a running worker and names the node, the path and the way out", () => {
+    it("denies a worker whose writes overlap a running worker and names the node, the path and the way out", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       const reason = blocked({ id: "n2", writes: ["src/a.ts"] });
       assert.ok(reason.includes("p1/n1"), reason);
@@ -3047,74 +3426,74 @@ describe("delegation-guard", () => {
       assert.ok(reason.includes("끝난 뒤"), reason);
     });
 
-    it("allows the same file again once a background worker has stopped (async bind, then SubagentStop)", () => {
+    it("allows the same file again once a background worker has stopped (async bind, then SubagentStop)", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       blocked({ id: "n2", writes: ["src/a.ts"] });
       startBackground(first);
       blocked({ id: "n2", writes: ["src/a.ts"] });
-      stopWorker(first);
+      await stopWorker(first);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("keeps a launch running until its own bind and stop arrive, whatever happened to other workers", () => {
+    it("keeps a launch running until its own bind and stop arrive, whatever happened to other workers", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       const other = launch({ id: "n3", writes: ["src/c.ts"] });
-      finish(other);
+      await finish(other);
       blocked({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("keeps a background worker running after its handback until its SubagentStop", () => {
+    it("keeps a background worker running after its handback until its SubagentStop", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       startBackground(first);
-      run({ session_id: "s1", hook_event_name: "PostToolUse", tool_name: "SubagentHandback", agent_id: first.agentId, agent_type: "worker", tool_input: { message: "NODE n1: done" } });
+      await feedEvent({ session_id: "s1", hook_event_name: "PostToolUse", tool_name: "SubagentHandback", agent_id: first.agentId, agent_type: "worker", tool_input: { message: "{}" } });
       blocked({ id: "n2", writes: ["src/a.ts"] });
-      stopWorker(first);
+      await stopWorker(first);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("still treats a completed bind as a completion, as a defence", () => {
+    it("still treats a completed bind as a completion, as a defence", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       blocked({ id: "n2", writes: ["src/a.ts"] });
       completedBind(first);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("says the node is freed when the earlier one ends, and that a vanished worker expires", () => {
+    it("says the node is freed when the earlier one ends, and that a vanished worker expires", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       const reason = blocked({ id: "n2", writes: ["src/a.ts"] });
       assert.ok(reason.includes("앞 노드가 끝나면 풀린다. 종료 기록 없이 사라진 worker는 3시간 뒤 만료된다."), reason);
       assert.ok(!reason.includes("중단됐다면") && !reason.includes("다음 메시지"), reason);
     });
 
-    it("keeps a background worker running after its async bind until its SubagentStop", () => {
+    it("keeps a background worker running after its async bind until its SubagentStop", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       startBackground(first);
       blocked({ id: "n2", writes: ["src/a.ts"] });
-      stopWorker(first);
+      await stopWorker(first);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("counts a SubagentStop without a message", () => {
+    it("counts a SubagentStop without a message", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       startBackground(first);
-      stopWorker(first, undefined);
+      await stopWorker(first, undefined);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("counts a SubagentStop that arrives before the async bind", () => {
+    it("counts a SubagentStop that arrives before the async bind", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
-      stopWorker(first, "NODE n1: done");
+      await stopWorker(first, WORKER_REPORT);
       startBackground(first);
       allowed({ id: "n2", writes: ["src/a.ts"] });
     });
 
-    it("records a stop only for workers", () => {
-      run({ session_id: "s1", hook_event_name: "SubagentStop", agent_id: "r1", agent_type: "reviewer" });
-      run({ session_id: "s1", hook_event_name: "SubagentStop", agent_type: "worker" });
+    it("records a stop only for workers", async () => {
+      await feedEvent({ session_id: "s1", hook_event_name: "SubagentStop", agent_id: "r1", agent_type: "reviewer" });
+      await feedEvent({ session_id: "s1", hook_event_name: "SubagentStop", agent_type: "worker" });
       const records = readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir));
       assert.equal(records.filter((record) => record.kind === "stop").length, 0);
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
-      stopWorker(first);
+      await stopWorker(first);
       assert.deepEqual(
         readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)).filter((record) => record.kind === "stop").map((record) => record.agentId),
         [first.agentId],
@@ -3144,7 +3523,8 @@ describe("delegation-guard", () => {
       const subagentEvent = (name) => ({ agentId }, ts) =>
         feed({ hook_event_name: name, agent_id: agentId, agent_type: "worker" }, ts);
       const startAt = subagentEvent("SubagentStart");
-      const stopAt = subagentEvent("SubagentStop");
+      // A worker's stop record is written by report-gate.mjs (delegation-state.mjs recordStop).
+      const stopAt = ({ agentId }, ts) => recordStop({ session_id: "s1", agent_id: agentId, agent_type: "worker" }, stateDir, ts);
       const failAt = ({ toolUseId }, ts) =>
         feed({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", tool_use_id: toolUseId, error: "boom" }, ts);
       const launchAt = (node, ts) => {
@@ -3159,7 +3539,7 @@ describe("delegation-guard", () => {
       };
       const allowedAt = (node, ts) => assert.equal(attempt(node, { now: ts }).result, null);
 
-      it("treats a background worker resumed after its stop as running again until the next stop", () => {
+      it("treats a background worker resumed after its stop as running again until the next stop", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         bindAt(first, "async_launched", at());
         startAt(first, at());
@@ -3170,7 +3550,7 @@ describe("delegation-guard", () => {
         allowedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("treats a worker resumed after a completed bind (defence) as running again", () => {
+      it("treats a worker resumed after a completed bind (defence) as running again", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         startAt(first, at());
         bindAt(first, "completed", at());
@@ -3180,7 +3560,7 @@ describe("delegation-guard", () => {
         allowedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("treats a start and a stop with the same timestamp as completed", () => {
+      it("treats a start and a stop with the same timestamp as completed", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         bindAt(first, "async_launched", at());
         const ts = at();
@@ -3189,7 +3569,7 @@ describe("delegation-guard", () => {
         allowedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("keeps a worker whose first start has the same timestamp as its async bind running", () => {
+      it("keeps a worker whose first start has the same timestamp as its async bind running", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         const ts = at();
         startAt(first, ts);
@@ -3197,14 +3577,15 @@ describe("delegation-guard", () => {
         deniedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("records starts only for workers", () => {
+      it("records a start only for a known agent type with an agent id", async () => {
         feed({ hook_event_name: "SubagentStart", agent_id: "r1", agent_type: "reviewer" }, at());
+        feed({ hook_event_name: "SubagentStart", agent_id: "g1", agent_type: "" }, at());
         feed({ hook_event_name: "SubagentStart", agent_type: "worker" }, at());
         const records = readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir));
-        assert.equal(records.filter((record) => record.kind === "start").length, 0);
+        assert.deepEqual(records.filter((record) => record.kind === "start").map((record) => record.agentId), ["r1"]);
       });
 
-      it("keeps a launch running when nothing but a user prompt happens, until the TTL", () => {
+      it("keeps a launch running when nothing but a user prompt happens, until the TTL", async () => {
         launchAt({ id: "n1", writes: ["src/a.ts"] }, T0);
         feed({ hook_event_name: "UserPromptSubmit", prompt: "다음 요청" }, T0 + 1);
         deniedAt({ id: "n2", writes: ["src/a.ts"] }, T0 + 2);
@@ -3213,14 +3594,14 @@ describe("delegation-guard", () => {
         assert.ok(!readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)).some((record) => record.kind === "prompt"));
       });
 
-      it("treats a failed Agent call as completed", () => {
+      it("treats a failed Agent call as completed", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         deniedAt({ id: "n2", writes: ["src/a.ts"] }, at());
         failAt(first, at());
         allowedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("ignores a failure that names another launch, and one without a tool_use_id", () => {
+      it("ignores a failure that names another launch, and one without a tool_use_id", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         failAt({ toolUseId: "other" }, at());
         feed({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", error: "boom" }, at());
@@ -3228,7 +3609,7 @@ describe("delegation-guard", () => {
         deniedAt({ id: "n2", writes: ["src/a.ts"] }, at());
       });
 
-      it("counts the TTL from the latest start of a resumed worker", () => {
+      it("counts the TTL from the latest start of a resumed worker", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, T0);
         bindAt(first, "async_launched", T0 + 1);
         startAt(first, T0 + 1);
@@ -3238,14 +3619,14 @@ describe("delegation-guard", () => {
         allowedAt({ id: "n2", writes: ["src/a.ts"] }, T0 + 6 * HOUR);
       });
 
-      it("records start and failure without any output", () => {
+      it("records start and failure without any output", async () => {
         const first = launchAt({ id: "n1", writes: ["src/a.ts"] }, at());
         assert.equal(startAt(first, at()), null);
         assert.equal(failAt(first, at()), null);
       });
     });
 
-    it("allows two parallel workers with disjoint writes and denies the one that overlaps", () => {
+    it("allows two parallel workers with disjoint writes and denies the one that overlaps", async () => {
       const a = launch({ id: "n1", writes: ["src/a.ts"] });
       startBackground(a);
       const b = launch({ id: "n2", writes: ["src/b.ts"] });
@@ -3254,56 +3635,56 @@ describe("delegation-guard", () => {
       allowed({ id: "n4", writes: ["docs/x.md"] });
     });
 
-    it("lets a worker through when the overlapping one is complete but another is still running elsewhere", () => {
+    it("lets a worker through when the overlapping one is complete but another is still running elsewhere", async () => {
       const a = launch({ id: "n1", writes: ["src/a.ts"] });
       launch({ id: "n2", writes: ["src/b.ts"] });
-      finish(a);
+      await finish(a);
       allowed({ id: "n3", writes: ["src/a.ts"] });
     });
 
-    it("reports every running node that overlaps", () => {
+    it("reports every running node that overlaps", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       launch({ id: "n2", writes: ["src/b.ts"] });
       const reason = blocked({ id: "n3", writes: ["src/a.ts", "src/b.ts"] });
       assert.ok(reason.includes("p1/n1") && reason.includes("p1/n2"), reason);
     });
 
-    it("denies any worker while an exclusive worker runs, and an exclusive worker while any worker runs", () => {
+    it("denies any worker while an exclusive worker runs, and an exclusive worker while any worker runs", async () => {
       const exclusive = launch({ id: "x1", writes: [], exclusive: true });
       const reason = blocked({ id: "n2", writes: ["src/b.ts"] });
       assert.ok(reason.includes("p1/x1") && reason.includes("exclusive"), reason);
-      finish(exclusive);
+      await finish(exclusive);
       const plain = launch({ id: "n2", writes: ["src/b.ts"] });
       assert.ok(blocked({ id: "x2", writes: [], exclusive: true }).includes("p1/n2"));
       assert.ok(blocked({ id: "x3", writes: ["other.txt"], exclusive: true }).includes("exclusive"));
-      finish(plain);
+      await finish(plain);
       allowed({ id: "x2", writes: [], exclusive: true });
     });
 
-    it("lets a running worker be replaced after the TTL, and not just before it", () => {
+    it("lets a running worker be replaced after the TTL, and not just before it", async () => {
       const start = Date.now();
       launch({ id: "n1", writes: ["src/a.ts"] }, { now: start });
       assert.equal(verdictOf(attempt({ id: "n2", writes: ["src/a.ts"] }, { now: start + 3 * HOUR - 1000 }).result), "deny");
       assert.equal(attempt({ id: "n2", writes: ["src/a.ts"] }, { now: start + 3 * HOUR + 1000 }).result, null);
     });
 
-    it("treats the same plan and node launched again while it runs as a conflict", () => {
+    it("treats the same plan and node launched again while it runs as a conflict", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       const reason = blocked({ id: "n1", writes: ["docs/other.md"] });
       assert.ok(reason.includes("p1/n1") && reason.includes("이미 실행 중"), reason);
     });
 
-    it("allows the same node again after it completed, and the same id under another plan", () => {
+    it("allows the same node again after it completed, and the same id under another plan", async () => {
       const first = launch({ id: "n1", writes: ["src/a.ts"] });
       allowed({ plan: "p2", id: "n1", writes: ["docs/other.md"] });
-      finish(first);
+      await finish(first);
       allowed({ id: "n1", writes: ["src/a.ts"] });
     });
 
-    it("does not look at reviewers or researchers", () => {
+    it("does not look at reviewers or researchers", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
-      assert.equal(run(launchInput("reviewer", withBlock(reviewerNode({ verifies: "other" })), { tool_use_id: "rv", cwd })), null);
-      assert.equal(run(launchInput("researcher", withBlock(researcherNode()), { tool_use_id: "rs", cwd })), null);
+      assert.equal(run(launchInput("reviewer", requestPrompt(reviewerNode({ verifies: "other" })), { tool_use_id: "rv", cwd })), null);
+      assert.equal(run(launchInput("researcher", requestPrompt(researcherNode()), { tool_use_id: "rs", cwd })), null);
     });
 
     const overlaps = [
@@ -3322,7 +3703,7 @@ describe("delegation-guard", () => {
       ["a file and a directory elsewhere", ["src/a.ts"], ["docs/**"], false],
     ];
     for (const [name, first, second, conflict] of overlaps) {
-      it(`${conflict ? "denies" : "allows"} ${name}`, () => {
+      it(`${conflict ? "denies" : "allows"} ${name}`, async () => {
         const resolveWrites = (writes) => writes.map((entry) => (typeof entry === "function" ? entry() : entry));
         launch({ id: "n1", writes: resolveWrites(first) });
         const { result } = attempt({ id: "n2", writes: resolveWrites(second) });
@@ -3330,14 +3711,14 @@ describe("delegation-guard", () => {
       });
     }
 
-    it("resolves relative writes against the repository root, not the launch cwd", () => {
+    it("resolves relative writes against the repository root, not the launch cwd", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] }, { launchCwd: cwd });
       assert.equal(verdictOf(attempt({ id: "n2", writes: [join(repo, "src/a.ts")] }, { launchCwd: repo }).result), "deny");
       assert.equal(verdictOf(attempt({ id: "n3", writes: ["src/a.ts"] }, { launchCwd: join(repo, "sub") }).result), "deny");
       assert.equal(attempt({ id: "n4", writes: [join(repo, "sub/src/a.ts")] }, { launchCwd: repo }).result, null);
     });
 
-    it("uses the recorded root of each running node", () => {
+    it("uses the recorded root of each running node", async () => {
       const other = realpathSync(mkdtempSync(join(tmpdir(), "hooks-repo-")));
       mkdirSync(join(other, ".git"));
       try {
@@ -3349,7 +3730,7 @@ describe("delegation-guard", () => {
       }
     });
 
-    it("falls back to the cwd when there is no repository", () => {
+    it("falls back to the cwd when there is no repository", async () => {
       const plain = realpathSync(mkdtempSync(join(tmpdir(), "hooks-plain-")));
       try {
         launch({ id: "n1", writes: ["a.ts"] }, { launchCwd: plain });
@@ -3359,14 +3740,14 @@ describe("delegation-guard", () => {
       }
     });
 
-    it("sees through a symlinked directory", () => {
+    it("sees through a symlinked directory", async () => {
       mkdirSync(join(repo, "real"));
       symlinkSync(join(repo, "real"), join(repo, "alias"));
       launch({ id: "n1", writes: ["real/a.ts"] });
       assert.equal(verdictOf(attempt({ id: "n2", writes: ["alias/a.ts"] }).result), "deny");
     });
 
-    it("does not record a denied launch", () => {
+    it("does not record a denied launch", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
       blocked({ id: "n2", writes: ["src/a.ts"] });
       const launches = readJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir)).filter((record) => record.kind === "launch");
@@ -3374,9 +3755,9 @@ describe("delegation-guard", () => {
       assert.equal(launches[0].root, repo);
     });
 
-    it("keeps running workers per session", () => {
+    it("keeps running workers per session", async () => {
       launch({ id: "n1", writes: ["src/a.ts"] });
-      const input = launchInput("worker", withBlock(workerNode({ id: "n2", writes: ["src/a.ts"] })), { session_id: "s2", cwd });
+      const input = launchInput("worker", requestPrompt(workerNode({ id: "n2", writes: ["src/a.ts"] })), { session_id: "s2", cwd });
       assert.equal(run(input), null);
     });
   });
@@ -3428,7 +3809,7 @@ describe("delegation-guard", () => {
     function bindWorker(node, agentId) {
       counter += 1;
       const toolUseId = `t${counter}`;
-      assert.equal(run(launchInput("worker", withBlock(workerNode(node)), { tool_use_id: toolUseId, cwd })), null);
+      assert.equal(run(launchInput("worker", requestPrompt(workerNode(node)), { tool_use_id: toolUseId, cwd })), null);
       run({
         session_id: "s1",
         hook_event_name: "PostToolUse",
@@ -3440,7 +3821,7 @@ describe("delegation-guard", () => {
     }
 
     describe("node from the bind", () => {
-      it("allows an edit inside writes and denies one outside, naming the node and its writes", () => {
+      it("allows an edit inside writes and denies one outside, naming the node and its writes", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts", "docs/**"] }, "wb1");
         assert.equal(edit("Write", "wb1", inRepo("src/a.ts")), null);
         assert.equal(edit("Edit", "wb1", inRepo("docs/deep/x.md")), null);
@@ -3453,20 +3834,20 @@ describe("delegation-guard", () => {
         assert.ok(reason.includes('"src/a.ts"') && reason.includes('"docs/**"'), reason);
       });
 
-      it("matches relative file paths against the cwd and relative writes against the repository root", () => {
+      it("matches relative file paths against the cwd and relative writes against the repository root", async () => {
         bindWorker({ id: "n7", writes: ["sub/a.ts"] }, "wb1");
         assert.equal(edit("Write", "wb1", "a.ts"), null);
         assert.equal(verdictOf(edit("Write", "wb1", "../a.ts")), "deny");
       });
 
-      it("prefers the bind over a different node in the transcript", () => {
+      it("prefers the bind over a different node in the transcript", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
-        writeTranscript("wb1", userLine(withBlock(workerNode({ id: "n8", writes: ["src/b.ts"] }))));
+        writeTranscript("wb1", userLine(requestPrompt(workerNode({ id: "n8", writes: ["src/b.ts"] }))));
         assert.equal(edit("Write", "wb1", inRepo("src/a.ts")), null);
         assert.equal(verdictOf(edit("Write", "wb1", inRepo("src/b.ts"))), "deny");
       });
 
-      it("takes the launch of the worker the agent was bound to, not the latest launch", () => {
+      it("takes the launch of the worker the agent was bound to, not the latest launch", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
         bindWorker({ id: "n8", writes: ["src/b.ts"] }, "wb2");
         assert.equal(verdictOf(edit("Write", "wb1", inRepo("src/b.ts"))), "deny");
@@ -3475,82 +3856,123 @@ describe("delegation-guard", () => {
     });
 
     describe("node from the transcript", () => {
-      it("reads the node from the first line when the worker is not bound yet (foreground)", () => {
-        writeTranscript("wf1", userLine(withBlock(workerNode({ id: "n5", writes: ["src/**"] }), "본문")));
+      it("reads the node from the first line when the worker is not bound yet (foreground)", async () => {
+        writeTranscript("wf1", userLine(requestPrompt(workerNode({ id: "n5", writes: ["src/**"] }), "본문")));
         assert.equal(edit("Write", "wf1", inRepo("src/deep/a.ts")), null);
         const result = edit("Write", "wf1", inRepo("docs/a.md"));
         assert.equal(verdictOf(result), "deny");
         assert.ok(reasonOf(result).includes("n5"));
       });
 
-      it("reads content given as text parts", () => {
-        writeTranscript("wf1", userLine([{ type: "text", text: withBlock(workerNode({ writes: ["src/a.ts"] })) }]));
+      it("reads content given as text parts", async () => {
+        writeTranscript("wf1", userLine([{ type: "text", text: requestPrompt(workerNode({ writes: ["src/a.ts"] })) }]));
         assert.equal(verdictOf(edit("Write", "wf1", inRepo("src/b.ts"))), "deny");
       });
 
-      it("uses the first block only", () => {
-        const prompt = `${withBlock(workerNode({ writes: ["src/a.ts"] }))}\n\n${withBlock(workerNode({ id: "example", writes: ["src/b.ts"] }))}`;
-        writeTranscript("wf1", userLine(prompt));
+      it("reads a request wrapped in a ``` fence", async () => {
+        writeTranscript("wf1", userLine(`\`\`\`json\n${requestPrompt(workerNode({ writes: ["src/a.ts"] }))}\n\`\`\``));
         assert.equal(verdictOf(edit("Write", "wf1", inRepo("src/b.ts"))), "deny");
       });
 
-      it("prefers agent_transcript_path when the input has one", () => {
+      it("does not read a prompt with text around the request", async () => {
+        writeTranscript("wf1", userLine(`설명\n${requestPrompt(workerNode({ writes: ["src/a.ts"] }))}`));
+        assert.equal(edit("Write", "wf1", inRepo("src/b.ts")), null);
+      });
+
+      it("prefers agent_transcript_path when the input has one", async () => {
         const elsewhere = join(repo, "elsewhere.jsonl");
-        writeFileSync(elsewhere, `${JSON.stringify(userLine(withBlock(workerNode({ writes: ["src/z.ts"] }))))}\n`);
+        writeFileSync(elsewhere, `${JSON.stringify(userLine(requestPrompt(workerNode({ writes: ["src/z.ts"] }))))}\n`);
         assert.equal(edit("Write", "wf1", inRepo("src/z.ts"), { agent_transcript_path: elsewhere }), null);
         assert.equal(verdictOf(edit("Write", "wf1", inRepo("src/a.ts"), { agent_transcript_path: elsewhere })), "deny");
       });
 
-      it("reads a first line longer than one read chunk", () => {
+      it("reads a first line longer than one read chunk", async () => {
         const body = "x".repeat(200 * 1024);
-        writeTranscript("wf1", userLine(withBlock(workerNode({ writes: ["src/a.ts"] }), body)), [userLine("second")]);
+        writeTranscript("wf1", userLine(requestPrompt(workerNode({ writes: ["src/a.ts"] }), body)), [userLine("second")]);
         assert.equal(edit("Write", "wf1", inRepo("src/a.ts")), null);
         assert.equal(verdictOf(edit("Write", "wf1", inRepo("src/b.ts"))), "deny");
       });
     });
 
+    describe("agents started with the earlier plan-node block format", () => {
+      const fenced = (node) => `\`\`\`plan-node\n${JSON.stringify(node)}\n\`\`\`\n\n본문`;
+
+      it("judges a bound worker by its launch record, whatever its transcript starts with", async () => {
+        bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
+        writeTranscript("wb1", userLine(fenced(workerNode({ id: "n7", writes: ["src/a.ts"] }))));
+        assert.equal(edit("Write", "wb1", inRepo("src/a.ts")), null);
+        assert.equal(verdictOf(edit("Write", "wb1", inRepo("src/b.ts"))), "deny");
+      });
+
+      it("judges a worker bound to a launch record without a stored request", async () => {
+        const legacyLaunch = {
+          kind: "launch",
+          ts: Date.now(),
+          toolUseId: "old1",
+          agentType: "worker",
+          plan: "p0",
+          id: "old",
+          verifies: null,
+          writes: ["src/a.ts"],
+          exclusive: false,
+          root: repo,
+        };
+        appendJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir), legacyLaunch);
+        appendJsonl(sessionStatePath({ session_id: "s1" }, "delegation.jsonl", stateDir), { kind: "bind", ts: Date.now(), toolUseId: "old1", agentId: "wold", status: "async_launched" });
+        assert.equal(edit("Write", "wold", inRepo("src/a.ts")), null);
+        const result = edit("Write", "wold", inRepo("src/b.ts"));
+        assert.equal(verdictOf(result), "deny");
+        assert.ok(reasonOf(result).includes("old"), reasonOf(result));
+      });
+
+      it("passes an unbound worker whose transcript starts with a block (no request to enforce)", async () => {
+        writeTranscript("wf1", userLine(fenced(workerNode({ writes: ["src/a.ts"] }))));
+        assert.equal(edit("Write", "wf1", inRepo("src/b.ts")), null);
+      });
+    });
+
     describe("fail-open", () => {
-      it("passes when neither a bind nor a transcript exists", () => {
+      it("passes when neither a bind nor a transcript exists", async () => {
         assert.equal(edit("Write", "nobody", inRepo("anything.txt")), null);
       });
 
-      it("passes when the transcript starts without a node block", () => {
+      it("passes when the transcript starts without a node block", async () => {
         writeTranscript("wf1", userLine("파일을 고쳐라"));
         assert.equal(edit("Write", "wf1", inRepo("anything.txt")), null);
       });
 
-      it("passes when the first transcript line is not JSON or has no message", () => {
+      it("passes when the first transcript line is not JSON or has no message", async () => {
         writeTranscript("wf1", "{not json");
         assert.equal(edit("Write", "wf1", inRepo("a.txt")), null);
         writeTranscript("wf2", { type: "summary" });
         assert.equal(edit("Write", "wf2", inRepo("a.txt")), null);
       });
 
-      it("passes when the node block has no usable writes", () => {
-        writeTranscript("wf1", userLine(withBlock({ plan: "p1", id: "n1" })));
+      it("passes when the node block has no usable writes", async () => {
+        writeTranscript("wf1", userLine(requestPrompt({ plan: "p1", id: "n1" })));
         assert.equal(edit("Write", "wf1", inRepo("a.txt")), null);
       });
 
-      it("passes when there is no transcript_path to compute from", () => {
+      it("passes when there is no transcript_path to compute from", async () => {
         assert.equal(edit("Write", "wf1", inRepo("a.txt"), { transcript_path: undefined }), null);
       });
     });
 
     describe("exclusive node without writes", () => {
-      it("denies every edit, from the transcript", () => {
-        writeTranscript("wx1", userLine(withBlock(workerNode({ id: "x1", writes: [], exclusive: true }))));
+      it("denies every edit, from the transcript", async () => {
+        writeTranscript("wx1", userLine(requestPrompt(workerNode({ id: "x1", writes: [], exclusive: true }))));
         const result = edit("Write", "wx1", inRepo("src/a.ts"));
         assert.equal(verdictOf(result), "deny");
         assert.ok(reasonOf(result).includes("x1") && reasonOf(result).includes("exclusive"), reasonOf(result));
         assert.equal(verdictOf(edit("Edit", "wx1", inRepo("any/other.txt"))), "deny");
       });
 
-      it("denies every edit, from the bind", () => {
+      it("denies every edit, from the bind", async () => {
         bindWorker({ id: "x1", writes: [], exclusive: true }, "wx2");
         assert.equal(verdictOf(edit("Write", "wx2", inRepo("src/a.ts"))), "deny");
       });
 
-      it("still restricts an exclusive node that has writes to them", () => {
+      it("still restricts an exclusive node that has writes to them", async () => {
         bindWorker({ id: "x2", writes: ["src/a.ts"], exclusive: true }, "wx3");
         assert.equal(edit("Write", "wx3", inRepo("src/a.ts")), null);
         assert.equal(verdictOf(edit("Write", "wx3", inRepo("src/b.ts"))), "deny");
@@ -3558,24 +3980,24 @@ describe("delegation-guard", () => {
     });
 
     describe("tools", () => {
-      it("checks MultiEdit by file_path", () => {
+      it("checks MultiEdit by file_path", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
         assert.equal(edit("MultiEdit", "wb1", inRepo("src/a.ts")), null);
         assert.equal(verdictOf(edit("MultiEdit", "wb1", inRepo("src/b.ts"))), "deny");
       });
 
-      it("checks NotebookEdit by notebook_path", () => {
+      it("checks NotebookEdit by notebook_path", async () => {
         bindWorker({ id: "n7", writes: ["nb/a.ipynb"] }, "wb1");
         assert.equal(edit("NotebookEdit", "wb1", inRepo("nb/a.ipynb")), null);
         assert.equal(verdictOf(edit("NotebookEdit", "wb1", inRepo("nb/b.ipynb"))), "deny");
       });
 
-      it("passes an edit without a target path", () => {
+      it("passes an edit without a target path", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
         assert.equal(run({ ...editInput("Write", "wb1", inRepo("x")), tool_input: {} }), null);
       });
 
-      it("ignores other tools", () => {
+      it("ignores other tools", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
         assert.equal(run({ ...editInput("Write", "wb1", inRepo("src/b.ts")), tool_name: "Read" }), null);
       });
@@ -3586,32 +4008,32 @@ describe("delegation-guard", () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
       });
 
-      it("passes calls whose agent_type is not worker", () => {
+      it("passes calls whose agent_type is not worker", async () => {
         for (const agentType of ["reviewer", "researcher", "general-purpose", undefined]) {
           assert.equal(edit("Write", "wb1", inRepo("src/b.ts"), { agent_type: agentType }), null, String(agentType));
         }
       });
 
-      it("passes the main conversation (no agent_id)", () => {
+      it("passes the main conversation (no agent_id)", async () => {
         assert.equal(edit("Write", undefined, inRepo("src/b.ts"), { agent_type: undefined }), null);
         assert.equal(edit("Write", undefined, inRepo("src/b.ts")), null);
       });
 
-      it("checks only PreToolUse events", () => {
+      it("checks only PreToolUse events", async () => {
         assert.equal(run({ ...editInput("Write", "wb1", inRepo("src/b.ts")), hook_event_name: "PostToolUse" }), null);
       });
     });
 
     describe("paths", () => {
-      it("allows the scratchpad for any worker node", () => {
+      it("allows the scratchpad for any worker node", async () => {
         bindWorker({ id: "n7", writes: ["src/a.ts"] }, "wb1");
         assert.equal(edit("Write", "wb1", join(scratch, "tmp", "note.txt")), null);
         assert.equal(verdictOf(edit("Write", "wb1", `${scratch}-other/x`)), "deny");
-        writeTranscript("wx1", userLine(withBlock(workerNode({ id: "x1", writes: [], exclusive: true }))));
+        writeTranscript("wx1", userLine(requestPrompt(workerNode({ id: "x1", writes: [], exclusive: true }))));
         assert.equal(edit("Write", "wx1", join(scratch, "note.txt")), null);
       });
 
-      it("treats a path through a symlink as the file it points to", () => {
+      it("treats a path through a symlink as the file it points to", async () => {
         mkdirSync(join(repo, "real"));
         symlinkSync(join(repo, "real"), join(repo, "alias"));
         bindWorker({ id: "n7", writes: ["real/**"] }, "wb1");
@@ -3619,12 +4041,12 @@ describe("delegation-guard", () => {
         assert.equal(verdictOf(edit("Write", "wb1", join(repo, "alias2", "new.ts"))), "deny");
       });
 
-      it("does not let .. leave the allowed directory", () => {
+      it("does not let .. leave the allowed directory", async () => {
         bindWorker({ id: "n7", writes: ["src/**"] }, "wb1");
         assert.equal(verdictOf(edit("Write", "wb1", inRepo("src/../docs/a.md"))), "deny");
       });
 
-      it("allows absolute writes", () => {
+      it("allows absolute writes", async () => {
         bindWorker({ id: "n7", writes: [inRepo("src/a.ts")] }, "wb1");
         assert.equal(edit("Write", "wb1", inRepo("src/a.ts")), null);
       });
@@ -4173,7 +4595,7 @@ describe("hook invoked through a symlinked directory", () => {
     assert.equal(runRawThroughLink("readonly-bash.mjs", input), null);
   });
 
-  it("delegation-guard denies a worker launch without a plan-node block", () => {
+  it("delegation-guard denies a worker launch whose prompt is not a JSON request", () => {
     const input = {
       session_id: "s1",
       hook_event_name: "PreToolUse",
@@ -4183,12 +4605,22 @@ describe("hook invoked through a symlinked directory", () => {
     assert.equal(runThroughLink("delegation-guard.mjs", input), "deny");
   });
 
-  it("delegation-guard records a verdict silently and then denies the node after three fails", () => {
+  it("report-gate records a verdict silently and delegation-guard then denies the node after three fails", () => {
     const stateDir = mkdtempSync(join(tmpdir(), "hooks-state-"));
     const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
-    const block = (node) => `\`\`\`plan-node\n${JSON.stringify(node)}\n\`\`\`\nbody`;
-    const reviewer = { plan: null, id: "r", agent: "reviewer", dependsOn: [], writes: [], verifies: "n1", acceptanceCriteria: ["x"] };
-    const worker = { plan: null, id: "n1", agent: "worker", dependsOn: [], writes: ["a.txt"], acceptanceCriteria: ["x"] };
+    const block = (node) => JSON.stringify(node);
+    const common = { plan: null, dependsOn: [], goal: "g", instructions: ["i"], acceptanceCriteria: ["x"] };
+    const reviewer = { ...common, id: "r", agent: "reviewer", writes: [], verifies: "n1" };
+    const worker = { ...common, id: "n1", agent: "worker", writes: ["a.txt"], verification: ["v"] };
+    const report = JSON.stringify({
+      agent: "reviewer",
+      plan: null,
+      id: "r",
+      summary: "s",
+      verifies: "n1",
+      verdict: "fail",
+      findings: [{ claim: "c", status: "confirmed", evidence: ["a.txt:1"] }],
+    });
     try {
       for (let i = 0; i < 3; i++) {
         const launch = { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "reviewer", prompt: block(reviewer) } };
@@ -4199,9 +4631,10 @@ describe("hook invoked through a symlinked directory", () => {
           tool_name: "SubagentHandback",
           agent_id: `r${i}`,
           agent_type: "reviewer",
-          tool_input: { message: "VERDICT n1: fail" },
+          tool_input: { message: report },
         };
-        assert.equal(runRawThroughLink("delegation-guard.mjs", done, env), null);
+        // The report gate records the delivery and the verdict; the guard only reads them at the next launch.
+        assert.equal(runRawThroughLink("report-gate.mjs", done, env), null);
       }
       const retry = { session_id: "s1", hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "worker", prompt: block(worker), run_in_background: true } };
       assert.equal(runRawThroughLink("delegation-guard.mjs", retry, env).hookSpecificOutput.permissionDecision, "deny");
@@ -4261,7 +4694,7 @@ describe("hook invoked through a symlinked directory", () => {
       assert.ok(output.reason.includes("TS2304"));
     });
 
-    it("check-on-stop denies SubagentHandback with the PreToolUse output", () => {
+    it("report-gate denies SubagentHandback of another agent with the PreToolUse output", () => {
       writeProjectFile(root, "tsconfig.json", "{}");
       declare(root, ["typescript"]);
       fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
@@ -4270,10 +4703,61 @@ describe("hook invoked through a symlinked directory", () => {
       const agent = { agent_id: "agent-abc" };
 
       assert.equal(runRawThroughLink("record-edit.mjs", editInput(file, agent), env), null);
-      const output = runRawThroughLink("check-on-stop.mjs", handbackInput(agent), env);
+      const output = runRawThroughLink("report-gate.mjs", handbackInput(agent), env);
 
       assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
       assert.ok(output.hookSpecificOutput.permissionDecisionReason.includes("TS2304"));
+    });
+
+    it("report-gate denies a worker's report that is not JSON before any check, and blocks a SubagentStop through the link", () => {
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
+      const file = writeProjectFile(root, "a.ts", "x");
+      const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
+      const worker = { agent_id: "agent-abc", agent_type: "worker" };
+
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file, worker), env), null);
+      const denied = runRawThroughLink("report-gate.mjs", { ...handbackInput(worker), tool_input: { message: "NODE n1: done" } }, env);
+      const stopped = runRawThroughLink(
+        "report-gate.mjs",
+        { session_id: "s1", hook_event_name: "SubagentStop", cwd: root, last_assistant_message: "NODE n1: done", agent_id: "agent-def", agent_type: "worker" },
+        env,
+      );
+
+      assert.equal(denied.hookSpecificOutput.permissionDecision, "deny");
+      assert.ok(denied.hookSpecificOutput.permissionDecisionReason.startsWith("보고 형식이 맞지 않는다."));
+      assert.ok(!denied.hookSpecificOutput.permissionDecisionReason.includes("TS2304"));
+      assert.equal(stopped.decision, "block");
+      assert.ok(stopped.reason.includes("형식 정의: ~/.claude/agents/worker.md의 보고 방식 절"));
+    });
+
+    it("report-gate runs the checks for a valid worker report through the link, and check-on-stop leaves SubagentStop alone", () => {
+      writeProjectFile(root, "tsconfig.json", "{}");
+      declare(root, ["typescript"]);
+      fakeBin(root, "tsc", { exit: 2, output: "a.ts(1,2): error TS2304: Cannot find name 'x'." });
+      const file = writeProjectFile(root, "a.ts", "x");
+      const env = { CLAUDE_HOOKS_STATE_DIR: stateDir };
+      const worker = { agent_id: "agent-abc", agent_type: "worker" };
+      const report = JSON.stringify({
+        agent: "worker",
+        plan: null,
+        id: "n1",
+        summary: "s",
+        status: "done",
+        changed: [],
+        checks: [],
+        issues: [],
+      });
+
+      assert.equal(runRawThroughLink("record-edit.mjs", editInput(file, worker), env), null);
+      const stop = { session_id: "s1", hook_event_name: "SubagentStop", cwd: root, last_assistant_message: report, ...worker };
+      assert.equal(runRawThroughLink("check-on-stop.mjs", stop, env), null);
+      const output = runRawThroughLink("report-gate.mjs", stop, env);
+
+      assert.equal(output.decision, "block");
+      assert.ok(output.reason.startsWith("[타입 검사]"));
+      assert.ok(output.reason.includes("TS2304"));
     });
 
     it("check-on-stop prints the asynchronous result of format, lint, tsc and tests through the link", () => {
